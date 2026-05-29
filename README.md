@@ -102,6 +102,30 @@ Give kudos for all activities in a specific club.
 
     python strava_kudos_tool.py -l youremail@domain.org yourpassword -ft club -c 12345678
 
+### gpx_add_time.py
+
+Adds time information to a GPX file that has no `<time>` data. You provide a start datetime and an average pace, and the tool assigns timestamps to every trackpoint using cumulative great-circle distance (constant pace, no gradient adjustment).
+
+    usage: gpx_add_time.py [-h] -i INPUT -s START -p PACE [-o OUTPUT] [-v]
+
+    Add time information to a GPX file using a constant pace.
+
+    required arguments:
+      -i, --input PATH     Input GPX file (no time data).
+      -s, --start ISO_DT   Start datetime, ISO 8601 (e.g. 2024-03-15T07:30:00
+                           or 2024-03-15T07:30:00+05:30). Naive values are UTC.
+      -p, --pace MM:SS     Average pace, minutes:seconds per km (e.g. 5:30).
+
+    optional arguments:
+      -o, --output PATH    Output GPX file. Default: <input-stem>_timed.gpx
+      -v, --verbose        Print per-segment stats to stderr.
+
+**EXAMPLES**
+
+Add timestamps to a notime GPX (5:30/km pace, starting 7:30 AM IST):
+
+    python gpx_add_time.py -i ride.gpx -s 2024-03-15T07:30:00+05:30 -p 5:30
+
 ### strava_photo_downloader.py
 
 Do you want to download all photos of your friends? no problem. 

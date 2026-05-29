@@ -3,3 +3,4 @@ python-dateutil
 argparse
 urllib3
 bs4
+gpxpy
