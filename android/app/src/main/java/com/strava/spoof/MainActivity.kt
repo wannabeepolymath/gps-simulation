@@ -30,12 +30,14 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -73,57 +75,85 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val repo = GpxFileRepository(this)
-        setContent { SpoofApp(repo) }
+        val authRepo = AuthRepository()
+        setContent { SpoofApp(repo, authRepo) }
     }
 }
 
 @Composable
-private fun SpoofApp(repo: GpxFileRepository) {
+private fun SpoofApp(repo: GpxFileRepository, authRepo: AuthRepository) {
     val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-            var screen by remember { mutableStateOf<Screen>(Screen.Library) }
-            val files = remember { mutableStateListOf<GpxFile>() }
-
-            LaunchedEffect(Unit) {
-                files.clear()
-                files.addAll(withContext(Dispatchers.IO) { repo.list() })
-            }
-
-            when (val s = screen) {
-                is Screen.Library -> LibraryScreen(
-                    files = files,
-                    onImport = { uri, name ->
-                        runCatching {
-                            val imported = repo.import(uri, name)
-                            files.clear()
-                            files.addAll(repo.list())
-                            imported
-                        }
-                    },
-                    onDelete = { f ->
-                        repo.delete(f)
-                        files.clear()
-                        files.addAll(repo.list())
-                    },
-                    onPick = { f -> screen = Screen.Replay(f) },
-                )
-                is Screen.Replay -> ReplayScreen(
-                    file = s.file,
-                    onBack = { screen = Screen.Library },
-                )
+            AuthGate(authRepo) { user ->
+                MainContent(repo, user, onSignOut = { authRepo.signOut() })
             }
         }
+    }
+}
+
+@Composable
+private fun AuthGate(authRepo: AuthRepository, content: @Composable (AuthState.SignedIn) -> Unit) {
+    val state by authRepo.state.collectAsState()
+    when (val s = state) {
+        is AuthState.Loading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        is AuthState.SignedOut -> LoginScreen(authRepo)
+        is AuthState.SignedIn -> content(s)
+    }
+}
+
+@Composable
+private fun MainContent(
+    repo: GpxFileRepository,
+    user: AuthState.SignedIn,
+    onSignOut: () -> Unit,
+) {
+    var screen by remember { mutableStateOf<Screen>(Screen.Library) }
+    val files = remember { mutableStateListOf<GpxFile>() }
+
+    LaunchedEffect(Unit) {
+        files.clear()
+        files.addAll(withContext(Dispatchers.IO) { repo.list() })
+    }
+
+    when (val s = screen) {
+        is Screen.Library -> LibraryScreen(
+            user = user,
+            files = files,
+            onImport = { uri, name ->
+                runCatching {
+                    val imported = repo.import(uri, name)
+                    files.clear()
+                    files.addAll(repo.list())
+                    imported
+                }
+            },
+            onDelete = { f ->
+                repo.delete(f)
+                files.clear()
+                files.addAll(repo.list())
+            },
+            onPick = { f -> screen = Screen.Replay(f) },
+            onSignOut = onSignOut,
+        )
+        is Screen.Replay -> ReplayScreen(
+            file = s.file,
+            onBack = { screen = Screen.Library },
+        )
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LibraryScreen(
+    user: AuthState.SignedIn,
     files: List<GpxFile>,
     onImport: (Uri, String) -> Result<GpxFile>,
     onDelete: (GpxFile) -> Unit,
     onPick: (GpxFile) -> Unit,
+    onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
     val picker = rememberLauncherForActivityResult(
@@ -141,7 +171,26 @@ private fun LibraryScreen(
     }
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text(stringRes(R.string.library_title)) }) },
+        topBar = {
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(stringRes(R.string.library_title))
+                        val subtitle = user.displayName ?: user.email ?: user.uid
+                        Text(
+                            subtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onSignOut) {
+                        Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
+                    }
+                },
+            )
+        },
         floatingActionButton = {
             FloatingActionButton(onClick = {
                 picker.launch(arrayOf("application/gpx+xml", "application/octet-stream", "*/*"))

@@ -22,6 +22,51 @@ Everything you need, in order, to spoof a Strava run.
 2. Settings → **System → Developer options** → turn on **USB debugging**.
 3. Plug the phone into your computer. A prompt appears on the phone: **Allow USB debugging?** → check "Always allow" → tap **Allow**.
 
+## 2.5 Firebase setup (required for login)
+
+The app gates access behind a login screen that supports **Email/Password** and **Sign in with Google**, backed by **Firebase Authentication**. The build fails without a real `google-services.json` in `android/app/`. Do this once.
+
+### 2.5.1 Create a Firebase project
+
+1. Go to https://console.firebase.google.com → **Add project** → name it e.g. `strava-spoof` → continue. You can disable Google Analytics — it's not needed.
+
+### 2.5.2 Register the Android app
+
+1. In the Firebase console, **Project Overview → Add app → Android** icon.
+2. **Android package name**: `com.strava.spoof` (must match exactly).
+3. **Debug signing certificate SHA-1**: needed for Google Sign-In. Get it from your local machine:
+   ```
+   # macOS / Linux:
+   keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey \
+     -storepass android -keypass android | grep "SHA1:"
+
+   # Windows (PowerShell):
+   # keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" `
+   #   -alias androiddebugkey -storepass android -keypass android | Select-String SHA1
+   ```
+   Paste the hex string (e.g. `12:34:AB:…:EF`) into the Firebase form. Click **Register app**.
+4. **Download `google-services.json`** → move it to **`android/app/google-services.json`**. (This file is gitignored — never commit it.)
+5. Skip the "Add Firebase SDK" and "Verify installation" wizard steps — `build.gradle.kts` is already set up.
+
+### 2.5.3 Enable the auth providers
+
+In the Firebase console: **Build → Authentication → Get started**, then on the **Sign-in method** tab:
+
+1. **Email/Password** → click → toggle **Enable** → **Save**.
+2. **Google** → click → toggle **Enable** → set a project support email → **Save**.
+
+### 2.5.4 Verify the Web OAuth client exists
+
+Google Sign-In on Android uses a **Web client ID**, not the Android client ID (counter-intuitive, but that's how it works).
+
+1. Firebase Console → ⚙️ → **Project settings** → **General** tab → scroll to "Your apps".
+2. There should be a **Web app** entry. If not: click **Add app → Web (`</>`)** → nickname it → register. (No need to add any SDK; we only need the client ID generated.)
+3. **Re-download `google-services.json`** from the Android app card. The fresh file now contains an `oauth_client` entry of `client_type: 3` (web). The google-services Gradle plugin uses it to generate `R.string.default_web_client_id` at build time.
+
+Without this step, email/password works but the "Continue with Google" button errors with *"Google sign-in not configured."*.
+
+---
+
 ## 3. Build and install the app
 
 You have two paths. **Path A (Android Studio)** is recommended the first time. **Path B (command line)** is faster once your machine is set up.
@@ -292,7 +337,13 @@ python tools/gpx_add_time.py -i route.gpx -s 2026-05-30T06:30:00+05:30 -p 5:30
 
 ## 6. Run the spoof
 
-1. Open **Strava Spoof** on the phone (icon: orange tile with a pin).
+1. Open **Strava Spoof** on the phone (icon: orange tile with a pin). On first launch you'll see the **Login screen** — pick one:
+   - **Sign up** tab → enter an email + password (≥6 chars) → **Create account**, *or*
+   - **Sign in** tab → existing email + password → **Sign in**, *or*
+   - **Continue with Google** → pick a Google account from the system sheet.
+
+   Once authenticated, the app remembers you until you tap the sign-out icon in the top-right of the library screen.
+
 2. Tap the orange **+** floating button (bottom right) → the system file picker opens → tap the ☰ menu → **Downloads** → pick your GPX file (`my_run.gpx` or `Morning_Run_strava_timed.gpx`) → tap it.
    - A toast says *"Imported …"*. The file appears in the library row with `<distance> km · <duration> · <points> pts`.
 3. Tap **Open** on the row. The Replay screen shows the file summary.
