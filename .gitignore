@@ -14,5 +14,5 @@ __pycache__/
 .venv/
 venv/
 
-# Strava login cookies
+# Session cookies used by the utility scripts under tools/
 .authdata*

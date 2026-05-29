@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import android.content.Context
 import android.location.LocationManager
@@ -40,5 +40,5 @@ object SetupChecker {
         }
     }
 
-    private const val PROBE_PROVIDER = "strava_spoof_probe"
+    private const val PROBE_PROVIDER = "gps_simulator_probe"
 }

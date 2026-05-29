@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "StravaSpoof"
+rootProject.name = "GpsSimulator"
 include(":app")

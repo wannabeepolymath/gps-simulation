@@ -1,4 +1,4 @@
-# Strava Spoof — Backend
+# GPS Simulator — Backend
 
 Node.js + Express + Postgres backend that stores per-user GPX files. The Android app talks to it via REST, authenticated with Firebase ID tokens.
 

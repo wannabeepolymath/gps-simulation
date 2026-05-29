@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import android.Manifest
 import android.content.Context
@@ -83,12 +83,12 @@ class MainActivity : ComponentActivity() {
         val api = ApiClient(BuildConfig.API_BASE_URL)
         val repo = GpxRepository(applicationContext, api)
         val authRepo = AuthRepository()
-        setContent { SpoofApp(repo, authRepo) }
+        setContent { SimulatorApp(repo, authRepo) }
     }
 }
 
 @Composable
-private fun SpoofApp(repo: GpxRepository, authRepo: AuthRepository) {
+private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
     val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -503,7 +503,7 @@ private fun ReplayScreen(file: GpxFile, localPath: String, onBack: () -> Unit) {
                     }
                 },
             ) {
-                Text(if (running) stringRes(R.string.stop_spoof) else stringRes(R.string.start_spoof))
+                Text(if (running) stringRes(R.string.stop_sim) else stringRes(R.string.start_sim))
             }
         }
     }
@@ -563,13 +563,13 @@ private fun StatusCard(state: RunState) {
                 is RunState.Idle -> {
                     Text("Status: idle", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        "Tap Start, then open Strava and start your run.",
+                        "Tap Start, then open your activity-tracking app and start recording.",
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 }
                 is RunState.Running -> {
                     Text(
-                        "Status: spoofing",
+                        "Status: simulating",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -578,7 +578,7 @@ private fun StatusCard(state: RunState) {
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     if (state.holdingLastPoint) {
-                        Text("Holding last point — stop the Strava run, then stop here.")
+                        Text("Holding last point — stop the recording in your tracking app, then stop here.")
                     }
                 }
                 is RunState.Failed -> {

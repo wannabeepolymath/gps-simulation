@@ -6,11 +6,11 @@ plugins {
 }
 
 android {
-    namespace = "com.strava.spoof"
+    namespace = "com.gpssimulator.app"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.strava.spoof"
+        applicationId = "com.gpssimulator.app"
         minSdk = 26
         targetSdk = 34
         versionCode = 1

@@ -1,5 +1,5 @@
 {
-  "name": "strava-spoof-backend",
+  "name": "gps-simulator-backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",

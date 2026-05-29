@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import kotlin.math.atan2
 import kotlin.math.cos

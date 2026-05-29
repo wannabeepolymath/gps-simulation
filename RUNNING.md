@@ -1,6 +1,6 @@
-# Running Strava Spoof end-to-end
+# Running GPS Simulator end-to-end
 
-Everything you need, in order, to spoof a Strava run.
+Everything you need, in order, to feed simulated GPS to your activity-tracking app.
 
 ---
 
@@ -28,12 +28,12 @@ The app gates access behind a login screen that supports **Email/Password** and 
 
 ### 2.5.1 Create a Firebase project
 
-1. Go to https://console.firebase.google.com → **Add project** → name it e.g. `strava-spoof` → continue. You can disable Google Analytics — it's not needed.
+1. Go to https://console.firebase.google.com → **Add project** → name it e.g. `gps-simulator` → continue. You can disable Google Analytics — it's not needed.
 
 ### 2.5.2 Register the Android app
 
 1. In the Firebase console, **Project Overview → Add app → Android** icon.
-2. **Android package name**: `com.strava.spoof` (must match exactly).
+2. **Android package name**: `com.gpssimulator.app` (must match exactly).
 3. **Debug signing certificate SHA-1**: needed for Google Sign-In. Get it from your local machine:
    ```
    # macOS / Linux:
@@ -76,18 +76,18 @@ The Android app no longer stores GPX files locally. It uploads to a small Node/E
 If you don't already have Postgres:
 
 ```
-docker run -d --name strava-spoof-pg \
-  -e POSTGRES_USER=strava_spoof \
-  -e POSTGRES_PASSWORD=strava_spoof \
-  -e POSTGRES_DB=strava_spoof \
+docker run -d --name gps-simulator-pg \
+  -e POSTGRES_USER=gps_simulator \
+  -e POSTGRES_PASSWORD=gps_simulator \
+  -e POSTGRES_DB=gps_simulator \
   -p 5432:5432 \
   postgres:16
 
 # Verify
-docker exec -it strava-spoof-pg psql -U strava_spoof -c "select 1"
+docker exec -it gps-simulator-pg psql -U gps_simulator -c "select 1"
 ```
 
-Stop/start later with `docker stop strava-spoof-pg` / `docker start strava-spoof-pg`. Data lives in the container's volume until you `docker rm` it.
+Stop/start later with `docker stop gps-simulator-pg` / `docker start gps-simulator-pg`. Data lives in the container's volume until you `docker rm` it.
 
 ### 2.6.2 Firebase Admin service account
 
@@ -286,7 +286,7 @@ Replug the USB cable, and on the phone swipe down the notification shade and tap
 
 6. **Run**
    - Click the green **▶ Run 'app'** button (top right of the toolbar). Shortcut: **Ctrl/Cmd + R**.
-   - Android Studio builds, installs, and launches `Strava Spoof` on the phone.
+   - Android Studio builds, installs, and launches `GPS Simulator` on the phone.
    - First build is slow (~2 min). Subsequent rebuilds are seconds.
    - On the phone, the app launches to the empty Library screen with the **+** button at bottom right.
 
@@ -340,13 +340,13 @@ Use this once you've done Path A at least once (it ensures the SDK + Gradle wrap
 5. **Launch the app**:
 
    ```
-   adb shell am start -n com.strava.spoof/.MainActivity
+   adb shell am start -n com.gpssimulator.app/.MainActivity
    ```
 
 6. **Watch logs** (in another terminal, optional but useful):
 
    ```
-   adb logcat -v color --pid=$(adb shell pidof com.strava.spoof)
+   adb logcat -v color --pid=$(adb shell pidof com.gpssimulator.app)
    ```
 
    Filter to just our app's logs.
@@ -361,32 +361,32 @@ Use this once you've done Path A at least once (it ensures the SDK + Gradle wrap
 | `unauthorized` in `adb devices` | Phone hasn't accepted RSA key | Tap "Always allow" on the phone, re-run `adb devices` |
 | Gradle sync: `Unsupported class file major version 65` | System JDK is too new (21+) | Set Gradle JDK to **Embedded JDK 17** (step A.2) |
 | Gradle sync: `Could not find SDK location` | `local.properties` missing | Open in Android Studio once, OR run step B.1 |
-| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` on `adb install` | Old signed version installed | `adb uninstall com.strava.spoof` then retry |
+| `INSTALL_FAILED_UPDATE_INCOMPATIBLE` on `adb install` | Old signed version installed | `adb uninstall com.gpssimulator.app` then retry |
 | `INSTALL_FAILED_USER_RESTRICTED` | MIUI / OEM blocks USB install | On phone: Dev Options → enable **USB debugging (Security settings)** + **Install via USB** |
 | App installs but immediately crashes on launch | Usually missing API 34 platform | Open SDK Manager → install Android 14 (API 34) |
 
 ## 4. One-time device setup (do this once per device)
 
-This is the actual privilege grant that makes spoofing work. Without it, the app's Start button stays disabled and tells you so.
+This is the actual privilege grant that makes simulation work. Without it, the app's Start button stays disabled and tells you so.
 
-1. On the phone: Settings → **System → Developer options** → scroll to the **Debugging** section → **Select mock location app** → tap → choose **Strava Spoof** → **OK**.
-   - If you don't see Strava Spoof in the list, the app isn't installed yet — go back to step 3.
+1. On the phone: Settings → **System → Developer options** → scroll to the **Debugging** section → **Select mock location app** → tap → choose **GPS Simulator** → **OK**.
+   - If you don't see GPS Simulator in the list, the app isn't installed yet — go back to step 3.
    - A shortcut from a terminal: `adb shell am start -a android.settings.APPLICATION_DEVELOPMENT_SETTINGS` opens that screen directly.
 
-2. Launch **Strava Spoof** → tap the **+** → pick any GPX → tap **Open** on the row. The Replay screen shows. If it prompts:
-   - **Allow Strava Spoof to access this device's location?** → **While using the app** (or **Only this time**, but you'll see it again).
-   - **Allow Strava Spoof to send you notifications?** (Android 13+) → **Allow**.
+2. Launch **GPS Simulator** → tap the **+** → pick any GPX → tap **Open** on the row. The Replay screen shows. If it prompts:
+   - **Allow GPS Simulator to access this device's location?** → **While using the app** (or **Only this time**, but you'll see it again).
+   - **Allow GPS Simulator to send you notifications?** (Android 13+) → **Allow**.
 
-3. If the "Setup required" card still shows, tap **I did this — re-check**. The card disappears and **Start Spoofing** turns enabled.
+3. If the "Setup required" card still shows, tap **I did this — re-check**. The card disappears and **Start Simulation** turns enabled.
 
 ### Verify from the command line (optional)
 
 ```
 # Should print: MOCK_LOCATION: allow
-adb shell appops get com.strava.spoof MOCK_LOCATION
+adb shell appops get com.gpssimulator.app MOCK_LOCATION
 
 # Should include both lines as `granted=true`
-adb shell dumpsys package com.strava.spoof | grep -E "ACCESS_FINE_LOCATION|POST_NOTIFICATIONS"
+adb shell dumpsys package com.gpssimulator.app | grep -E "ACCESS_FINE_LOCATION|POST_NOTIFICATIONS"
 ```
 
 ## 5. Get a GPX file into your library
@@ -397,10 +397,10 @@ Make sure a GPX file is reachable from the phone's file picker. Easiest path:
 
 ### Option A — use a sample (fastest)
 
-The repo includes a real run at `tools/run_gpx_files/Morning_Run_strava_timed.gpx`. Copy it to the phone's Downloads folder:
+The repo includes a real run at `tools/run_gpx_files/morning_run_timed.gpx`. Copy it to the phone's Downloads folder:
 
 ```
-adb push tools/run_gpx_files/Morning_Run_strava_timed.gpx /sdcard/Download/
+adb push tools/run_gpx_files/morning_run_timed.gpx /sdcard/Download/
 ```
 
 (`adb` is bundled with Android Studio; full path is `~/Library/Android/sdk/platform-tools/adb` on macOS.)
@@ -427,48 +427,48 @@ That produces a 5 km loop starting at the given coord, 5:30/km pace. See `tools/
 
 ### Option C — your own GPX
 
-Any GPX from Strava route builder, Komoot, plotaroute.com, etc. If it lacks timestamps, run it through `tools/gpx_add_time.py` first:
+Any GPX from a route builder (Komoot, plotaroute.com, etc.) If it lacks timestamps, run it through `tools/gpx_add_time.py` first:
 
 ```
 python tools/gpx_add_time.py -i route.gpx -s 2026-05-30T06:30:00+05:30 -p 5:30
 ```
 
-## 6. Run the spoof
+## 6. Run the simulation
 
-1. Open **Strava Spoof** on the phone (icon: orange tile with a pin). On first launch you'll see the **Login screen** — pick one:
+1. Open **GPS Simulator** on the phone (icon: orange tile with a pin). On first launch you'll see the **Login screen** — pick one:
    - **Sign up** tab → enter an email + password (≥6 chars) → **Create account**, *or*
-   - **Sign in** tab → existing email + password → **Sign in**, *or*
-   - **Continue with Google** → pick a Google account from the system sheet.
+   - **Sign in** tab → existing email + password → **Sign in**.
+   - (**Continue with Google** is greyed out for now; coming back in v0.4.)
 
    Once authenticated, the app remembers you until you tap the sign-out icon in the top-right of the library screen.
 
-2. Tap the orange **+** floating button (bottom right) → the system file picker opens → tap the ☰ menu → **Downloads** → pick your GPX file (`my_run.gpx` or `Morning_Run_strava_timed.gpx`) → tap it.
+2. Tap the orange **+** floating button (bottom right) → the system file picker opens → tap the ☰ menu → **Downloads** → pick your GPX file (`my_run.gpx` or `morning_run_timed.gpx`) → tap it.
    - A toast says *"Uploaded …"*. The app sends the bytes to the backend, which parses and stores them in Postgres.
    - The new row appears with distance / duration / point count returned by the server.
    - Use the **pencil** icon to rename a file. Renames are sent to the backend (`PATCH /gpx/:id`); the new name is what shows up next time you load.
    - Use the **trash** icon to delete it from your account.
    - The circular **↻** icon in the top bar re-fetches the list.
 3. Tap **Open** on the row. The app downloads the GPX bytes to a local cache (then reuses the cache on subsequent opens) and switches to the Replay screen.
-4. Confirm the Status card says **"Status: idle"** and the bottom button reads **Start Spoofing** in green.
-5. Tap **Start Spoofing**.
-   - The status card turns blue/primary and reads **"Status: spoofing — Elapsed 00:00 / mm:ss"**.
-   - A persistent notification appears: *"GPS spoofing active"*.
-   - The button changes to a red **Stop Spoofing**.
-6. **Now open the real Strava app** → tap **Record** (bottom nav) → confirm **Run** is selected → tap the big orange **Start** button.
-   - Strava picks up the spoofed coordinates within ~2–5 seconds. The map pans to the GPX start.
-7. Let it run. You can lock the phone — the foreground service keeps emitting at 1 Hz. Strava records as if you were really moving.
+4. Confirm the Status card says **"Status: idle"** and the bottom button reads **Start Simulation** in green.
+5. Tap **Start Simulation**.
+   - The status card turns blue/primary and reads **"Status: simulating — Elapsed 00:00 / mm:ss"**.
+   - A persistent notification appears: *"GPS simulation active"*.
+   - The button changes to a red **Stop Simulation**.
+6. **Now open your activity-tracking app** → tap its Record / Start Activity button → pick the activity type (Run, Ride, Walk…) → tap Start.
+   - The tracking app picks up the simulated coordinates within ~2–5 seconds. The map pans to the GPX start.
+7. Let it run. You can lock the phone — the foreground service keeps emitting at 1 Hz. The tracking app records as if you were really moving.
 8. When the GPX ends:
-   - Strava Spoof's status flips to **"Holding last point — stop the Strava run, then stop here."**
-   - In **Strava**: tap the lock-screen Strava notification → tap **Pause** → **Finish** → fill in the title → **Save Activity**.
-9. Back in **Strava Spoof**: tap the red **Stop Spoofing**. Status returns to "idle". The mock GPS provider is removed and your real GPS comes back.
+   - GPS Simulator's status flips to **"Holding last point — stop the recording in your tracking app, then stop here."**
+   - In your **tracking app**: tap its lock-screen notification → tap **Pause** → **Finish** → fill in the title → **Save Activity**.
+9. Back in **GPS Simulator**: tap the red **Stop Simulation**. Status returns to "idle". The mock GPS provider is removed and your real GPS comes back.
 
 ### Watch live from a terminal (optional)
 
-In two side-by-side terminals while the spoof is running:
+In two side-by-side terminals while the simulation is running:
 
 ```
 # Terminal 1 — our app's logs
-adb logcat -v color --pid=$(adb shell pidof com.strava.spoof)
+adb logcat -v color --pid=$(adb shell pidof com.gpssimulator.app)
 
 # Terminal 2 — current LocationManager state
 watch -n 2 "adb shell dumpsys location | sed -n '/gps provider:/,/passive provider:/p'"
@@ -476,14 +476,14 @@ watch -n 2 "adb shell dumpsys location | sed -n '/gps provider:/,/passive provid
 
 The `dumpsys` block updates each second with the new lat/lon that the service just emitted.
 
-## 7. Verifying the spoof is actually working
+## 7. Verifying the simulation is actually working
 
 Three quick checks. Use any one.
 
 **A. Install GPS Test (easiest)**
 - Play Store → install any free **GPS Test** app (e.g. "GPS Test" by Chartcross).
-- Open it while Strava Spoof is running. Lat/lon and the map pin should match the GPX coordinates, not your physical location.
-- If it shows your real location, the mock-location selection in step 4 didn't stick — re-do it and confirm with `adb shell appops get com.strava.spoof MOCK_LOCATION`.
+- Open it while GPS Simulator is running. Lat/lon and the map pin should match the GPX coordinates, not your physical location.
+- If it shows your real location, the mock-location selection in step 4 didn't stick — re-do it and confirm with `adb shell appops get com.gpssimulator.app MOCK_LOCATION`.
 
 **B. From a terminal (no extra app needed)**
 ```
@@ -496,17 +496,17 @@ The `Location` line should reflect coordinates from your GPX, and you'll see `mo
 ```
 adb shell "while true; do dumpsys location | grep -E 'last location.*gps' ; sleep 1; done"
 ```
-Watch the lat/lon advance as Strava Spoof walks the file.
+Watch the lat/lon advance as GPS Simulator walks the file.
 
 ## 8. Turning it off when you're done
 
 Don't leave the app installed long-term as your mock provider; it interferes with normal apps that need GPS. To revert fully:
 
-1. **Stop any active session** in Strava Spoof: tap **Stop Spoofing**. Confirm the notification disappears.
+1. **Stop any active session** in GPS Simulator: tap **Stop Simulation**. Confirm the notification disappears.
 2. **Unselect the mock app**: Settings → System → Developer options → **Select mock location app** → **None**.
 3. **(Optional) Uninstall the app**:
    ```
-   adb uninstall com.strava.spoof
+   adb uninstall com.gpssimulator.app
    ```
 4. **Verify your real GPS is back**: open Google Maps and tap the blue "my location" dot — it should re-center on where you actually are.
 5. **(Optional) Turn off Developer Options** entirely: Settings → System → Developer options → toggle **Use developer options** off.
@@ -519,13 +519,13 @@ Don't leave the app installed long-term as your mock provider; it interferes wit
 |---|---|---|
 | Start button stays disabled, "Mock location not allowed" | App not selected in Dev Options | Step 4.1 |
 | Import fails: "trkpt missing `<time>`" | Untimed GPX | Run through `gpx_add_time.py` first |
-| Strava records 0 m / never moves | Mock app picked but real GPS still on | Force-stop Strava, re-open, restart spoof, then restart Strava recording |
-| Spoofed run shows huge speed spikes | GPX has gaps or out-of-order timestamps | Re-generate with `gpx_build.py` |
+| Tracking app records 0 m / never moves | Mock app picked but real GPS still on | Force-stop the tracking app, re-open, restart simulation, then restart its recording |
+| Simulated run shows huge speed spikes | GPX has gaps or out-of-order timestamps | Re-generate with `gpx_build.py` |
 | Notification gone, service died | OS killed background — rare on a foreground service | Reopen the app and tap Start again |
 
 ## Important notes
 
 - **Don't ship this to the Play Store.** Mock-location apps violate policy and will be rejected.
-- **Don't run two spoofers at once.** Whichever is "Select mock location app" wins.
+- **Don't run two simulators at once.** Whichever is "Select mock location app" wins.
 - **iOS is not supported.** There is no equivalent public API on iOS.
-- **Be sensible.** This is for testing / fun; spoofing on Strava segments or paid challenges is against their TOS.
+- **Be sensible.** This is for testing / fun; simulation on segments or paid challenges in any fitness app is against that app's TOS.

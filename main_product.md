@@ -1,13 +1,12 @@
-# strava activity recoreded
+# GPS Simulator
 
 ## Goal
 
-simulate the gps data for strava activities like running to help user climb on the leaderboard with out going anywhere.
-
+Simulate GPS data on the phone so an activity-tracking app (running, cycling, walking) records a route as if the user moved through it — without the user going anywhere.
 
 ## Target Users
 
-* strava users
+* Anyone whose fitness/tracking app records the device's GPS
 
 ---
 
@@ -18,8 +17,7 @@ simulate the gps data for strava activities like running to help user climb on t
 Upload:
 * GPX file
 
-### 2. use start the activity on the app and the app gets the updated gps data.
-
+### 2. User starts the activity in their tracking app; the GPS Simulator feeds the OS the simulated GPS in real time.
 
 ---
 
@@ -27,52 +25,52 @@ Upload:
 
 Frontend:
 
-* React expo
-* TypeScript
+* Native Android (Kotlin + Jetpack Compose)
 
 Backend:
 
-* Node.js
-* Express
+* Node.js + Express + TypeScript
 
 Storage:
 
-* PostgreSQL (if needed)
+* PostgreSQL — GPX files persisted per user
 
+Auth:
+
+* Firebase Authentication (email/password, Google planned)
 
 ---
 
 ## User Flow
 
-Create Scenario
+Sign in
 
 ↓
 
-Select Device
+Pick / upload a GPX file in the library
 
 ↓
 
-Choose Route / Coordinates
+Start the simulation (the app starts emitting mock GPS)
 
 ↓
 
-Start Simulation
+Open the tracking app and start recording
 
 ↓
 
-Observe App Behavior
+Observe the tracking app's behaviour
 
 ↓
 
-Save Session
+When the GPX ends, stop the recording then stop the simulator
 
 ---
 
 ## Success Metrics
 
-* User creates first simulation < 2 minutes
-* Route playback works reliably
+* User runs first simulation < 2 minutes after install
+* Route playback works reliably end-to-end
 * Reproducible testing sessions
 
-
-user can select between with data to replay. (list of gpx file)
+The user can pick from a list of GPX files they've uploaded.

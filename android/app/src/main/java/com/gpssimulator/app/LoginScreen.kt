@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import android.content.Context
 import android.util.Patterns
@@ -65,7 +65,7 @@ fun LoginScreen(repo: AuthRepository) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                "Strava Spoof",
+                "GPS Simulator",
                 style = MaterialTheme.typography.headlineMedium,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -127,22 +127,11 @@ fun LoginScreen(repo: AuthRepository) {
             Row3OrDivider("or")
 
             OutlinedButton(
-                onClick = {
-                    loading = true
-                    error = null
-                    scope.launch {
-                        val outcome = runCatching {
-                            val idToken = requestGoogleIdToken(context)
-                            repo.signInWithGoogleIdToken(idToken).getOrThrow()
-                        }
-                        outcome.onFailure { error = it.message }
-                        loading = false
-                    }
-                },
-                enabled = !loading,
+                onClick = { /* disabled */ },
+                enabled = false,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Text("Continue with Google")
+                Text("Continue with Google (coming soon)")
             }
 
             if (loading) {

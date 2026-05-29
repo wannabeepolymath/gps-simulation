@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.Dispatchers

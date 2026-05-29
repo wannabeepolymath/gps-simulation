@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser

@@ -1,4 +1,4 @@
-package com.strava.spoof
+package com.gpssimulator.app
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -292,7 +292,7 @@ class MockLocationService : Service() {
 
     companion object {
         const val EXTRA_GPX_PATH = "gpx_path"
-        const val ACTION_STOP = "com.strava.spoof.STOP"
+        const val ACTION_STOP = "com.gpssimulator.app.STOP"
         private const val CHANNEL_ID = "mock_location"
         private const val NOTIF_ID = 4711
 

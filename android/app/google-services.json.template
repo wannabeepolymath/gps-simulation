@@ -1,5 +1,5 @@
 {
-  "_comment": "Template only. Replace with real google-services.json downloaded from Firebase console (Project settings -> Your apps -> com.strava.spoof -> google-services.json). Then save it as `app/google-services.json` (no .template). See RUNNING.md section 9 for the full setup walkthrough.",
+  "_comment": "Template only. Replace with real google-services.json downloaded from Firebase console (Project settings -> Your apps -> com.gpssimulator.app -> google-services.json). Then save it as `app/google-services.json` (no .template). See RUNNING.md section 9 for the full setup walkthrough.",
   "project_info": {
     "project_number": "REPLACE_WITH_PROJECT_NUMBER",
     "project_id": "REPLACE_WITH_PROJECT_ID",
@@ -9,7 +9,7 @@
     {
       "client_info": {
         "mobilesdk_app_id": "REPLACE_WITH_MOBILE_SDK_APP_ID",
-        "android_client_info": { "package_name": "com.strava.spoof" }
+        "android_client_info": { "package_name": "com.gpssimulator.app" }
       },
       "oauth_client": [],
       "api_key": [{ "current_key": "REPLACE_WITH_API_KEY" }],
