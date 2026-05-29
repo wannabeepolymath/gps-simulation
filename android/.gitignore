@@ -1,0 +1,11 @@
+.gradle/
+build/
+local.properties
+.idea/
+*.iml
+.cxx/
+captures/
+.externalNativeBuild/
+gradle/wrapper/gradle-wrapper.jar
+gradlew
+gradlew.bat
