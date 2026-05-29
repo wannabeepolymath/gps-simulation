@@ -6,7 +6,11 @@ Tools for Strava — both offline data hacks (Python CLIs) and a live GPS spoofe
 
 ### `android/` — Strava Spoof (live GPS spoofing)
 
-Native Android app. Replays a GPX file as the device's mock GPS in real time so the official Strava app records it as a normal run. See [`android/README.md`](android/README.md) for build + on-device setup.
+Native Android app. Replays a GPX file as the device's mock GPS in real time so the official Strava app records it as a normal run. Gated behind Firebase Auth (email/password or Google). GPX files live in the backend, not on the device. See [`android/README.md`](android/README.md) for build + on-device setup.
+
+### `backend/` — Node/Express + Postgres
+
+REST API that stores per-user GPX files in Postgres, scoped by Firebase UID. Endpoints for upload, list, download, rename, delete. See [`backend/README.md`](backend/README.md) for the API shape and [RUNNING.md §2.6](RUNNING.md) for setup.
 
 ### `tools/` — Python CLIs
 

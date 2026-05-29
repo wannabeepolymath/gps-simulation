@@ -33,6 +33,9 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -43,9 +46,11 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -56,6 +61,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,25 +69,26 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import java.io.File
 
 private sealed class Screen {
     data object Library : Screen()
-    data class Replay(val file: GpxFile) : Screen()
+    data class Replay(val file: GpxFile, val localPath: String) : Screen()
 }
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val repo = GpxFileRepository(this)
+        val api = ApiClient(BuildConfig.API_BASE_URL)
+        val repo = GpxRepository(applicationContext, api)
         val authRepo = AuthRepository()
         setContent { SpoofApp(repo, authRepo) }
     }
 }
 
 @Composable
-private fun SpoofApp(repo: GpxFileRepository, authRepo: AuthRepository) {
+private fun SpoofApp(repo: GpxRepository, authRepo: AuthRepository) {
     val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -106,40 +113,82 @@ private fun AuthGate(authRepo: AuthRepository, content: @Composable (AuthState.S
 
 @Composable
 private fun MainContent(
-    repo: GpxFileRepository,
+    repo: GpxRepository,
     user: AuthState.SignedIn,
     onSignOut: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var screen by remember { mutableStateOf<Screen>(Screen.Library) }
     val files = remember { mutableStateListOf<GpxFile>() }
+    var loading by remember { mutableStateOf(true) }
+    var loadError by remember { mutableStateOf<String?>(null) }
 
-    LaunchedEffect(Unit) {
-        files.clear()
-        files.addAll(withContext(Dispatchers.IO) { repo.list() })
+    suspend fun refresh() {
+        loading = true
+        loadError = null
+        runCatching { repo.list() }
+            .onSuccess { fresh ->
+                files.clear(); files.addAll(fresh)
+            }
+            .onFailure { loadError = it.message ?: "Failed to load files." }
+        loading = false
     }
+
+    LaunchedEffect(Unit) { refresh() }
 
     when (val s = screen) {
         is Screen.Library -> LibraryScreen(
             user = user,
             files = files,
+            loading = loading,
+            errorMessage = loadError,
+            onRefresh = { scope.launch { refresh() } },
             onImport = { uri, name ->
-                runCatching {
-                    val imported = repo.import(uri, name)
-                    files.clear()
-                    files.addAll(repo.list())
-                    imported
+                scope.launch {
+                    runCatching { repo.upload(uri, name) }
+                        .onSuccess {
+                            Toast.makeText(context, "Uploaded ${it.name}", Toast.LENGTH_SHORT).show()
+                            refresh()
+                        }
+                        .onFailure {
+                            Toast.makeText(context, "Upload failed: ${it.message}", Toast.LENGTH_LONG).show()
+                        }
                 }
             },
-            onDelete = { f ->
-                repo.delete(f)
-                files.clear()
-                files.addAll(repo.list())
+            onRename = { file, newName ->
+                scope.launch {
+                    runCatching { repo.rename(file, newName) }
+                        .onSuccess { refresh() }
+                        .onFailure {
+                            Toast.makeText(context, "Rename failed: ${it.message}", Toast.LENGTH_LONG).show()
+                        }
+                }
             },
-            onPick = { f -> screen = Screen.Replay(f) },
+            onDelete = { file ->
+                scope.launch {
+                    runCatching { repo.delete(file) }
+                        .onSuccess { refresh() }
+                        .onFailure {
+                            Toast.makeText(context, "Delete failed: ${it.message}", Toast.LENGTH_LONG).show()
+                        }
+                }
+            },
+            onPick = { file ->
+                scope.launch {
+                    val cached = runCatching { repo.ensureCached(file) }
+                    cached.onSuccess { local ->
+                        screen = Screen.Replay(file, local.absolutePath)
+                    }.onFailure {
+                        Toast.makeText(context, "Download failed: ${it.message}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            },
             onSignOut = onSignOut,
         )
         is Screen.Replay -> ReplayScreen(
             file = s.file,
+            localPath = s.localPath,
             onBack = { screen = Screen.Library },
         )
     }
@@ -150,24 +199,24 @@ private fun MainContent(
 private fun LibraryScreen(
     user: AuthState.SignedIn,
     files: List<GpxFile>,
-    onImport: (Uri, String) -> Result<GpxFile>,
+    loading: Boolean,
+    errorMessage: String?,
+    onRefresh: () -> Unit,
+    onImport: (Uri, String) -> Unit,
+    onRename: (GpxFile, String) -> Unit,
     onDelete: (GpxFile) -> Unit,
     onPick: (GpxFile) -> Unit,
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
+    var renameTarget by remember { mutableStateOf<GpxFile?>(null) }
+
     val picker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
     ) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         val name = context.queryDisplayName(uri) ?: "route.gpx"
         onImport(uri, name)
-            .onFailure { e ->
-                Toast.makeText(context, "Import failed: ${e.message}", Toast.LENGTH_LONG).show()
-            }
-            .onSuccess {
-                Toast.makeText(context, "Imported ${it.name}", Toast.LENGTH_SHORT).show()
-            }
     }
 
     Scaffold(
@@ -185,6 +234,9 @@ private fun LibraryScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onRefresh, enabled = !loading) {
+                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                    }
                     IconButton(onClick = onSignOut) {
                         Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = "Sign out")
                     }
@@ -199,26 +251,64 @@ private fun LibraryScreen(
             }
         },
     ) { padding ->
-        if (files.isEmpty()) {
-            EmptyState(padding)
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentPadding = PaddingValues(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items(files, key = { it.path }) { file ->
-                    FileRow(file = file, onPick = { onPick(file) }, onDelete = { onDelete(file) })
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when {
+                loading && files.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator() }
+
+                errorMessage != null && files.isEmpty() -> Box(
+                    modifier = Modifier.fillMaxSize().padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            errorMessage,
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyLarge,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Button(onClick = onRefresh) { Text("Retry") }
+                    }
+                }
+
+                files.isEmpty() -> EmptyState()
+
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    items(files, key = { it.id }) { file ->
+                        FileRow(
+                            file = file,
+                            onPick = { onPick(file) },
+                            onRename = { renameTarget = file },
+                            onDelete = { onDelete(file) },
+                        )
+                    }
                 }
             }
         }
     }
+
+    renameTarget?.let { file ->
+        RenameDialog(
+            currentName = file.name,
+            onCancel = { renameTarget = null },
+            onConfirm = { newName ->
+                onRename(file, newName)
+                renameTarget = null
+            },
+        )
+    }
 }
 
 @Composable
-private fun EmptyState(padding: PaddingValues) {
+private fun EmptyState() {
     Box(
-        modifier = Modifier.fillMaxSize().padding(padding).padding(32.dp),
+        modifier = Modifier.fillMaxSize().padding(32.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -230,7 +320,12 @@ private fun EmptyState(padding: PaddingValues) {
 }
 
 @Composable
-private fun FileRow(file: GpxFile, onPick: () -> Unit, onDelete: () -> Unit) {
+private fun FileRow(
+    file: GpxFile,
+    onPick: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(12.dp),
@@ -245,24 +340,58 @@ private fun FileRow(file: GpxFile, onPick: () -> Unit, onDelete: () -> Unit) {
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = "%.2f km · %s · %d pts".format(
-                        file.distanceKm, file.durationFormatted, file.meta.pointCount,
+                        file.distanceKm, file.durationFormatted, file.pointCount,
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Button(onClick = onPick) { Text("Open") }
-            Spacer(Modifier.width(4.dp))
+            IconButton(onClick = onRename) {
+                Icon(Icons.Default.Edit, contentDescription = "Rename")
+            }
             IconButton(onClick = onDelete) {
                 Icon(Icons.Default.Delete, contentDescription = "Delete")
             }
+            Spacer(Modifier.width(4.dp))
+            Button(onClick = onPick) { Text("Open") }
         }
     }
 }
 
+@Composable
+private fun RenameDialog(
+    currentName: String,
+    onCancel: () -> Unit,
+    onConfirm: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(currentName) }
+    AlertDialog(
+        onDismissRequest = onCancel,
+        title = { Text("Rename") },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                label = { Text("File name") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onConfirm(text.trim()) },
+                enabled = text.trim().isNotEmpty() && text.trim() != currentName,
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onCancel) { Text("Cancel") }
+        },
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ReplayScreen(file: GpxFile, onBack: () -> Unit) {
+private fun ReplayScreen(file: GpxFile, localPath: String, onBack: () -> Unit) {
     val context = LocalContext.current
     val state by ServiceState.state.collectAsState()
 
@@ -321,7 +450,7 @@ private fun ReplayScreen(file: GpxFile, onBack: () -> Unit) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text("Distance: %.2f km".format(file.distanceKm))
                     Text("Duration: ${file.durationFormatted}")
-                    Text("Points: ${file.meta.pointCount}")
+                    Text("Points: ${file.pointCount}")
                 }
             }
 
@@ -361,7 +490,7 @@ private fun ReplayScreen(file: GpxFile, onBack: () -> Unit) {
             val running = state is RunState.Running
             Button(
                 modifier = Modifier.fillMaxWidth(),
-                enabled = issues.isEmpty(),
+                enabled = issues.isEmpty() && File(localPath).exists(),
                 colors = if (running)
                     ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 else
@@ -370,7 +499,7 @@ private fun ReplayScreen(file: GpxFile, onBack: () -> Unit) {
                     if (running) {
                         MockLocationService.stop(context)
                     } else {
-                        MockLocationService.start(context, file.path)
+                        MockLocationService.start(context, localPath)
                     }
                 },
             ) {

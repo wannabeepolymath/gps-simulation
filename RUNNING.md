@@ -67,6 +67,100 @@ Without this step, email/password works but the "Continue with Google" button er
 
 ---
 
+## 2.6 Backend setup (required — GPX files live in Postgres)
+
+The Android app no longer stores GPX files locally. It uploads to a small Node/Express backend backed by Postgres, scoped by your Firebase user. Bring up the backend on the same machine you're developing from.
+
+### 2.6.1 Postgres via Docker
+
+If you don't already have Postgres:
+
+```
+docker run -d --name strava-spoof-pg \
+  -e POSTGRES_USER=strava_spoof \
+  -e POSTGRES_PASSWORD=strava_spoof \
+  -e POSTGRES_DB=strava_spoof \
+  -p 5432:5432 \
+  postgres:16
+
+# Verify
+docker exec -it strava-spoof-pg psql -U strava_spoof -c "select 1"
+```
+
+Stop/start later with `docker stop strava-spoof-pg` / `docker start strava-spoof-pg`. Data lives in the container's volume until you `docker rm` it.
+
+### 2.6.2 Firebase Admin service account
+
+The backend verifies Firebase ID tokens that the Android app sends. It needs the project's service account key:
+
+1. Firebase console → ⚙️ → **Project settings → Service accounts** tab.
+2. Click **Generate new private key** → **Generate key**. A JSON file downloads.
+3. Move it to `backend/firebase-service-account.json`. (Gitignored.)
+4. Keep it private — anyone with this file has admin access to your Firebase project.
+
+### 2.6.3 Backend env + first run
+
+```
+cd backend
+cp .env.example .env
+# Edit .env if your Postgres URL or service account path differs.
+
+npm install
+npm run migrate           # creates the gpx_files table; idempotent
+npm run dev               # tsx watch; listens on PORT (default 4000)
+```
+
+You should see:
+
+```
+[migrate] applying 001_init.sql
+[migrate] up to date (1 files seen, 0 previously applied)
+[server] listening on http://0.0.0.0:4000
+```
+
+Sanity check from another terminal:
+
+```
+curl http://localhost:4000/health
+# {"ok":true}
+```
+
+### 2.6.4 Point the Android app at the backend
+
+The Android build reads the API base URL from a Gradle property `api.base.url` (default `http://10.0.2.2:4000`, which is the emulator-to-host shortcut).
+
+For a real device on the same Wi-Fi, find your dev machine's LAN IP:
+
+```
+# macOS:
+ipconfig getifaddr en0     # e.g. 192.168.1.42
+
+# Linux:
+# hostname -I | awk '{print $1}'
+
+# Windows:
+# ipconfig | findstr IPv4
+```
+
+Then either:
+
+- **Add to `~/.gradle/gradle.properties`** (applies globally):
+  ```
+  api.base.url=http://192.168.1.42:4000
+  ```
+- **Or pass at build time**:
+  ```
+  ./gradlew assembleDebug -Papi.base.url=http://192.168.1.42:4000
+  ```
+- **Or hardcode** in `android/gradle.properties` (committed; only do this in a personal branch):
+  ```
+  api.base.url=http://192.168.1.42:4000
+  ```
+
+Make sure your dev machine's firewall allows inbound TCP/4000 on that interface, and the phone is on the same Wi-Fi.
+
+---
+
 ## 3. Build and install the app
 
 You have two paths. **Path A (Android Studio)** is recommended the first time. **Path B (command line)** is faster once your machine is set up.
@@ -295,19 +389,23 @@ adb shell appops get com.strava.spoof MOCK_LOCATION
 adb shell dumpsys package com.strava.spoof | grep -E "ACCESS_FINE_LOCATION|POST_NOTIFICATIONS"
 ```
 
-## 5. Get a GPX file onto the phone
+## 5. Get a GPX file into your library
 
-You need a GPX file with `<time>` data on every trackpoint. v1 rejects untimed GPX.
+You upload GPX files **from the app itself** — the backend stores them in Postgres, scoped to your Firebase user. You can rename them in-app later by tapping the pencil icon on the row. v1 rejects GPX without `<time>` data on every trackpoint.
+
+Make sure a GPX file is reachable from the phone's file picker. Easiest path:
 
 ### Option A — use a sample (fastest)
 
-The repo includes a real run at `tools/run_gpx_files/Morning_Run_strava_timed.gpx`. Copy it to the phone:
+The repo includes a real run at `tools/run_gpx_files/Morning_Run_strava_timed.gpx`. Copy it to the phone's Downloads folder:
 
 ```
 adb push tools/run_gpx_files/Morning_Run_strava_timed.gpx /sdcard/Download/
 ```
 
 (`adb` is bundled with Android Studio; full path is `~/Library/Android/sdk/platform-tools/adb` on macOS.)
+
+Then in the app: **+** button → **Downloads** → pick the file. It uploads to the backend; the row appears with distance / duration / point count read from the server.
 
 ### Option B — generate a fresh route
 
@@ -345,8 +443,12 @@ python tools/gpx_add_time.py -i route.gpx -s 2026-05-30T06:30:00+05:30 -p 5:30
    Once authenticated, the app remembers you until you tap the sign-out icon in the top-right of the library screen.
 
 2. Tap the orange **+** floating button (bottom right) → the system file picker opens → tap the ☰ menu → **Downloads** → pick your GPX file (`my_run.gpx` or `Morning_Run_strava_timed.gpx`) → tap it.
-   - A toast says *"Imported …"*. The file appears in the library row with `<distance> km · <duration> · <points> pts`.
-3. Tap **Open** on the row. The Replay screen shows the file summary.
+   - A toast says *"Uploaded …"*. The app sends the bytes to the backend, which parses and stores them in Postgres.
+   - The new row appears with distance / duration / point count returned by the server.
+   - Use the **pencil** icon to rename a file. Renames are sent to the backend (`PATCH /gpx/:id`); the new name is what shows up next time you load.
+   - Use the **trash** icon to delete it from your account.
+   - The circular **↻** icon in the top bar re-fetches the list.
+3. Tap **Open** on the row. The app downloads the GPX bytes to a local cache (then reuses the cache on subsequent opens) and switches to the Replay screen.
 4. Confirm the Status card says **"Status: idle"** and the bottom button reads **Start Spoofing** in green.
 5. Tap **Start Spoofing**.
    - The status card turns blue/primary and reads **"Status: spoofing — Elapsed 00:00 / mm:ss"**.
