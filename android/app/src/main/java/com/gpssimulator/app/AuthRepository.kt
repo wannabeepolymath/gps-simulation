@@ -111,6 +111,8 @@ class AuthRepository(context: Context) {
         }
         val email = payload.optString("email", "").ifBlank { null }
         val name = cred.displayName ?: payload.optString("name", "").ifBlank { null }
+        val expSec = payload.optLong("exp", 0L)
+        val expMs = if (expSec > 0L) expSec * 1000L else 0L
 
         cachedIdToken = cred.idToken
         tokenAcquiredAtMs = System.currentTimeMillis()
@@ -119,6 +121,8 @@ class AuthRepository(context: Context) {
             .putString(KEY_SUB, sub)
             .putString(KEY_EMAIL, email)
             .putString(KEY_NAME, name)
+            .putString(KEY_ID_TOKEN, cred.idToken)
+            .putLong(KEY_ID_TOKEN_EXP_MS, expMs)
             .apply()
 
         _state.value = AuthState.SignedIn(sub, email, name)
@@ -128,6 +132,18 @@ class AuthRepository(context: Context) {
         val sub = prefs.getString(KEY_SUB, null) ?: return AuthState.SignedOut
         val email = prefs.getString(KEY_EMAIL, null)
         val name = prefs.getString(KEY_NAME, null)
+
+        // Reuse the previously-minted ID token if it still has runway. Skips the
+        // Credential Manager → Play Services hop on cold start, which is the
+        // dominant cost on the first API call. If the token has expired or the
+        // server rejects it (401), ApiClient.call() falls back to silentRefresh.
+        val storedToken = prefs.getString(KEY_ID_TOKEN, null)
+        val expMs = prefs.getLong(KEY_ID_TOKEN_EXP_MS, 0L)
+        if (storedToken != null && expMs > System.currentTimeMillis() + TOKEN_EXPIRY_BUFFER_MS) {
+            cachedIdToken = storedToken
+            tokenAcquiredAtMs = System.currentTimeMillis()
+        }
+
         return AuthState.SignedIn(sub, email, name)
     }
 
@@ -142,5 +158,11 @@ class AuthRepository(context: Context) {
         private const val KEY_SUB = "sub"
         private const val KEY_EMAIL = "email"
         private const val KEY_NAME = "name"
+        private const val KEY_ID_TOKEN = "id_token"
+        private const val KEY_ID_TOKEN_EXP_MS = "id_token_exp_ms"
+
+        // Don't reuse a token with <60s of runway — avoids races where the token
+        // expires mid-request and the server 401s after we've already started.
+        private const val TOKEN_EXPIRY_BUFFER_MS = 60_000L
     }
 }

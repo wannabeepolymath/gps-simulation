@@ -105,7 +105,12 @@ private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
                 MainContent(
                     repo = repo,
                     user = user,
-                    onSignOut = { scope.launch { authRepo.signOut() } },
+                    onSignOut = {
+                    scope.launch {
+                        repo.clearListCache()
+                        authRepo.signOut()
+                    }
+                },
                 )
             }
             update?.let { release ->
@@ -126,7 +131,7 @@ private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
         val state = authRepo.state.value
         if (state is AuthState.SignedIn && authRepo.currentIdToken() == null) {
             runCatching { authRepo.silentRefresh() }
-                .onFailure { authRepo.signOut() }
+                .onFailure { repo.clearListCache(); authRepo.signOut() }
         }
     }
 
@@ -283,7 +288,15 @@ private fun MainContent(
         loading = false
     }
 
-    LaunchedEffect(Unit) { refresh() }
+    LaunchedEffect(Unit) {
+        // Seed the list from the on-disk snapshot so the user sees something
+        // immediately on cold start. With files already populated, the spinner
+        // (`loading && files.isEmpty()`) stays hidden while refresh() runs.
+        repo.cachedList()?.let { cached ->
+            if (files.isEmpty()) { files.addAll(cached); loading = false }
+        }
+        refresh()
+    }
 
     noTimeNotice?.let { file ->
         AlertDialog(

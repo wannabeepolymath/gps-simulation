@@ -22,6 +22,15 @@ data class GpxFile(
             else "%02d:%02d".format(m, s)
         }
 
+    fun toJson(): JSONObject = JSONObject()
+        .put("id", id)
+        .put("name", name)
+        .put("distanceMeters", distanceMeters)
+        .put("durationSeconds", durationSeconds)
+        .put("pointCount", pointCount)
+        .put("sizeBytes", sizeBytes)
+        .put("hasTime", hasTime)
+
     companion object {
         fun fromJson(o: JSONObject): GpxFile = GpxFile(
             id = o.getString("id"),

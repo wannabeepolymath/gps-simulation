@@ -15,14 +15,48 @@ class GpxRepository(
     private val cacheDir: File
         get() = File(context.filesDir, "gpx_cache").apply { if (!exists()) mkdirs() }
 
+    private val listCacheFile: File
+        get() = File(context.filesDir, "files_cache.json")
+
+    /**
+     * Returns the last-known list from disk, or null on miss/parse failure.
+     * Cheap — small JSON. Lets the UI render instantly on cold start while
+     * [list] refreshes from the network in the background.
+     */
+    suspend fun cachedList(): List<GpxFile>? = withContext(Dispatchers.IO) {
+        val f = listCacheFile
+        if (!f.exists()) return@withContext null
+        runCatching {
+            val obj = JSONObject(f.readText(Charsets.UTF_8))
+            val arr = obj.optJSONArray("files") ?: JSONArray()
+            buildList {
+                for (i in 0 until arr.length()) add(GpxFile.fromJson(arr.getJSONObject(i)))
+            }
+        }.getOrNull()
+    }
+
+    /** Wipe the persisted list cache — call on sign-out to avoid leaking across accounts. */
+    fun clearListCache() {
+        runCatching { listCacheFile.delete() }
+    }
+
     suspend fun list(): List<GpxFile> = withContext(Dispatchers.IO) {
         api.get("/gpx").use { res ->
             val body = res.body?.string().orEmpty()
             val obj = JSONObject(body)
             val arr = obj.optJSONArray("files") ?: JSONArray()
-            buildList {
+            val result = buildList {
                 for (i in 0 until arr.length()) add(GpxFile.fromJson(arr.getJSONObject(i)))
             }
+            // Persist a snapshot so the next cold start can render instantly.
+            // Best-effort — a write failure shouldn't break the call.
+            runCatching {
+                val out = JSONObject().put("files", JSONArray().apply {
+                    for (item in result) put(item.toJson())
+                })
+                listCacheFile.writeText(out.toString(), Charsets.UTF_8)
+            }
+            result
         }
     }
 
