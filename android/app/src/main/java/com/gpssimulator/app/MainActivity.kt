@@ -47,6 +47,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -110,15 +111,7 @@ private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
             update?.let { release ->
                 UpdateDialog(
                     release = release,
-                    onDownload = {
-                        runCatching {
-                            context.startActivity(
-                                Intent(Intent.ACTION_VIEW, Uri.parse(release.downloadUrl))
-                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                        }
-                        update = null
-                    },
+                    onClose = { update = null },
                     onLater = {
                         UpdateChecker.markDismissed(context, release.version)
                         update = null
@@ -142,15 +135,49 @@ private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
     }
 }
 
+private sealed class UpdatePhase {
+    data object Prompt : UpdatePhase()
+    data object NeedPermission : UpdatePhase()
+    data class Downloading(val percent: Int) : UpdatePhase()
+    data class Failed(val message: String) : UpdatePhase()
+}
+
 @Composable
 private fun UpdateDialog(
     release: UpdateChecker.LatestRelease,
-    onDownload: () -> Unit,
+    onClose: () -> Unit,
     onLater: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var phase by remember { mutableStateOf<UpdatePhase>(UpdatePhase.Prompt) }
+
     val notes = release.notes.take(600).let { if (release.notes.length > 600) "$it…" else it }
+    val isDownloading = phase is UpdatePhase.Downloading
+
+    fun startDownload() {
+        if (!UpdateInstaller.canInstallPackages(context)) {
+            phase = UpdatePhase.NeedPermission
+            return
+        }
+        phase = UpdatePhase.Downloading(0)
+        scope.launch {
+            runCatching {
+                UpdateInstaller.downloadApk(context, release.downloadUrl) { pct ->
+                    phase = UpdatePhase.Downloading(pct)
+                }
+            }.onSuccess { apk ->
+                runCatching { UpdateInstaller.launchInstall(context, apk) }
+                onClose()
+            }.onFailure { e ->
+                phase = UpdatePhase.Failed(e.message ?: "unknown")
+            }
+        }
+    }
+
     AlertDialog(
-        onDismissRequest = onLater,
+        // Block back-button / outside-tap from dismissing mid-download.
+        onDismissRequest = { if (!isDownloading) onLater() },
         title = { Text("${stringRes(R.string.update_title)} — v${release.version}") },
         text = {
             Column {
@@ -164,14 +191,57 @@ private fun UpdateDialog(
                 }
                 if (notes.isNotBlank()) {
                     Text(notes, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                }
+                when (val p = phase) {
+                    is UpdatePhase.Prompt -> {}
+                    is UpdatePhase.NeedPermission -> {
+                        Text(
+                            stringRes(R.string.update_need_install_perm),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                    is UpdatePhase.Downloading -> {
+                        LinearProgressIndicator(
+                            progress = { p.percent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Spacer(Modifier.height(6.dp))
+                        Text(
+                            String.format(stringRes(R.string.update_downloading), p.percent),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    is UpdatePhase.Failed -> {
+                        Text(
+                            String.format(stringRes(R.string.update_failed), p.message),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
-            TextButton(onClick = onDownload) { Text(stringRes(R.string.update_download)) }
+            when (phase) {
+                is UpdatePhase.Prompt -> TextButton(onClick = { startDownload() }) {
+                    Text(stringRes(R.string.update_now))
+                }
+                is UpdatePhase.NeedPermission -> TextButton(onClick = {
+                    UpdateInstaller.openInstallPermissionSettings(context)
+                    phase = UpdatePhase.Prompt
+                }) { Text(stringRes(R.string.update_open_settings)) }
+                is UpdatePhase.Downloading -> {}
+                is UpdatePhase.Failed -> TextButton(onClick = { startDownload() }) {
+                    Text(stringRes(R.string.update_retry))
+                }
+            }
         },
         dismissButton = {
-            TextButton(onClick = onLater) { Text(stringRes(R.string.update_later)) }
+            if (!isDownloading) {
+                TextButton(onClick = onLater) { Text(stringRes(R.string.update_later)) }
+            }
         },
     )
 }

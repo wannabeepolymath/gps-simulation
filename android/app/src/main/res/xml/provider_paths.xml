@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!--
+        We only expose the app's cache dir, where the downloader writes
+        update.apk. The system installer reads from this content:// URI.
+    -->
+    <cache-path name="updates" path="." />
+</paths>

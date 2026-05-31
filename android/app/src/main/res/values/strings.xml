@@ -36,6 +36,11 @@
     <string name="add_time_apply">Apply &amp; upload as new file</string>
     <string name="add_time_done">Added timestamps — file uploaded.</string>
     <string name="update_title">Update available</string>
-    <string name="update_download">Download</string>
+    <string name="update_now">Update now</string>
+    <string name="update_retry">Retry</string>
     <string name="update_later">Later</string>
+    <string name="update_downloading">Downloading %1$d%%</string>
+    <string name="update_need_install_perm">Allow GPS Simulator to install updates, then tap Update now again.</string>
+    <string name="update_open_settings">Open settings</string>
+    <string name="update_failed">Download failed: %1$s</string>
 </resources>

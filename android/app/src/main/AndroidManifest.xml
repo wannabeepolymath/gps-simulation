@@ -17,6 +17,10 @@
     <uses-permission
         android:name="android.permission.ACCESS_MOCK_LOCATION"
         tools:ignore="ProtectedPermissions,MockLocation" />
+    <!-- Needed for the in-app update flow: lets us launch the system installer
+         on a downloaded APK. User still has to grant "Install unknown apps"
+         once per source the first time. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -41,5 +45,17 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <!-- Exposes the downloaded APK to the system installer via content://
+             so we don't have to give it a file:// URI. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/provider_paths" />
+        </provider>
     </application>
 </manifest>
