@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -545,6 +546,19 @@ private fun ReplayScreen(file: GpxFile, localPath: String, onBack: () -> Unit) {
         issues = SetupChecker.missingIssues(context, hasLocationPerm, hasNotifPerm)
     }
 
+    // null = loading, emptyList = parse failed, non-empty = ready
+    var routePoints by remember { mutableStateOf<List<Pair<Double, Double>>?>(null) }
+    LaunchedEffect(localPath) {
+        runCatching {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                java.io.FileInputStream(localPath).use { input ->
+                    GpxParser.parse(input).map { it.lat to it.lon }
+                }
+            }
+        }.onSuccess { routePoints = it }
+            .onFailure { routePoints = emptyList() }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -619,6 +633,38 @@ private fun ReplayScreen(file: GpxFile, localPath: String, onBack: () -> Unit) {
                 },
             ) {
                 Text(if (running) stringRes(R.string.stop_sim) else stringRes(R.string.start_sim))
+            }
+
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Text(
+                        text = "Route",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    when (val pts = routePoints) {
+                        null -> Box(
+                            modifier = Modifier.fillMaxWidth().height(220.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                        }
+                        else -> if (pts.size >= 2) {
+                            RouteMap(
+                                points = pts,
+                                modifier = Modifier.fillMaxWidth().height(220.dp),
+                            )
+                        } else {
+                            Text(
+                                "Route preview unavailable.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
             }
         }
     }
