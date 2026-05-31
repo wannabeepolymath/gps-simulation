@@ -18,3 +18,9 @@ venv/
 .authdata*
 
 .env
+
+# OAuth client secret JSONs — never commit. Treat as if they were passwords.
+client_secret_*.json
+*-firebase-adminsdk-*.json
+(web)client_secret_*.json
+(android)client_secret_*.json
