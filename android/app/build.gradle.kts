@@ -12,6 +12,11 @@ android {
         applicationId = "com.gpssimulator.app"
         minSdk = 26
         targetSdk = 34
+        // Bump both for every release.
+        //   versionCode: +1 every time, monotonic, never reused. Android's update key.
+        //   versionName: MAJOR.MINOR.PATCH — bug fix = patch, new feature = minor,
+        //                breaking change (perms, data loss, removed feature) = major.
+        // Git tag must be "v" + versionName (e.g. v0.5.1) for the in-app update check.
         versionCode = 2
         versionName = "0.5.0"
 
