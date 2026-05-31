@@ -26,9 +26,19 @@ class GpxRepository(
         }
     }
 
-    suspend fun upload(uri: Uri, displayName: String): GpxFile = withContext(Dispatchers.IO) {
-        val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    /** Read the bytes pointed to by a content URI. */
+    suspend fun readUriBytes(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
+        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             ?: throw ApiException(0, "Could not read file.")
+    }
+
+    suspend fun upload(uri: Uri, displayName: String): GpxFile {
+        val bytes = readUriBytes(uri)
+        return uploadBytes(bytes, displayName)
+    }
+
+    /** Upload an in-memory GPX body. Used by both file picker and the Add Time tool. */
+    suspend fun uploadBytes(bytes: ByteArray, displayName: String): GpxFile = withContext(Dispatchers.IO) {
         api.postMultipart(
             path = "/gpx",
             fileBytes = bytes,
@@ -37,6 +47,13 @@ class GpxRepository(
         ).use { res ->
             val body = res.body?.string().orEmpty()
             GpxFile.fromJson(JSONObject(body).getJSONObject("file"))
+        }
+    }
+
+    /** Download the raw GPX bytes (no caching). For the Add Time tool. */
+    suspend fun downloadBytes(file: GpxFile): ByteArray = withContext(Dispatchers.IO) {
+        api.get("/gpx/${file.id}/download").use { res ->
+            res.body?.bytes() ?: throw ApiException(0, "Empty download response.")
         }
     }
 

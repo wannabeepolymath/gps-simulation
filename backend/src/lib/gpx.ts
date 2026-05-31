@@ -1,14 +1,18 @@
 /**
  * Tiny GPX parser — extracts trackpoints to compute summary metadata
- * (distance, duration, point count). Mirrors the Android-side parser:
- * v1 requires timed trackpoints.
+ * (distance, duration, point count).
+ *
+ * <time> is optional. Files without per-point timestamps still parse;
+ * `hasTime` is reported per-file and `durationS` is 0 in that case.
+ * Timed playback requires time tags — the Android client gates the
+ * simulator on hasTime and offers an "Add Time" tool to fix the file.
  */
 
 export interface TrackPoint {
     lat: number;
     lon: number;
     ele?: number;
-    time: Date;
+    time?: Date;
 }
 
 export class GpxParseError extends Error {}
@@ -31,15 +35,14 @@ export function parseGpx(buf: Buffer): TrackPoint[] {
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
             throw new GpxParseError("trkpt missing valid lat/lon");
         }
+        let time: Date | undefined;
         const timeMatch = inner.match(TIME_RE);
-        if (!timeMatch) {
-            throw new GpxParseError(
-                "trkpt missing <time>. v1 requires timed GPX. Use gpx_add_time.py first.",
-            );
-        }
-        const time = new Date(timeMatch[1]);
-        if (Number.isNaN(time.getTime())) {
-            throw new GpxParseError(`invalid ISO-8601 time: ${timeMatch[1]}`);
+        if (timeMatch) {
+            const t = new Date(timeMatch[1]);
+            if (Number.isNaN(t.getTime())) {
+                throw new GpxParseError(`invalid ISO-8601 time: ${timeMatch[1]}`);
+            }
+            time = t;
         }
         const eleMatch = inner.match(ELE_RE);
         const ele = eleMatch ? Number(eleMatch[1]) : undefined;
@@ -50,10 +53,7 @@ export function parseGpx(buf: Buffer): TrackPoint[] {
         visit(m[1], m[2]);
     }
     for (const m of xml.matchAll(SELF_CLOSING_TRKPT_RE)) {
-        // Self-closing trkpts can't carry <time>, so they'd fail visit().
-        // Surface a clearer error here.
-        const inner = "";
-        visit(m[1], inner);
+        visit(m[1], "");
     }
 
     if (points.length === 0) throw new GpxParseError("GPX has no trackpoints");
@@ -75,9 +75,12 @@ function haversine(a: TrackPoint, b: TrackPoint): number {
 export function summarize(points: TrackPoint[]) {
     let distance = 0;
     for (let i = 1; i < points.length; i++) distance += haversine(points[i - 1], points[i]);
-    const duration = Math.max(
-        0,
-        Math.round((points[points.length - 1].time.getTime() - points[0].time.getTime()) / 1000),
-    );
-    return { distanceM: distance, durationS: duration, pointCount: points.length };
+    const hasTime = points.every((p) => p.time !== undefined);
+    let duration = 0;
+    if (hasTime) {
+        const first = points[0].time as Date;
+        const last = points[points.length - 1].time as Date;
+        duration = Math.max(0, Math.round((last.getTime() - first.getTime()) / 1000));
+    }
+    return { distanceM: distance, durationS: duration, pointCount: points.length, hasTime };
 }

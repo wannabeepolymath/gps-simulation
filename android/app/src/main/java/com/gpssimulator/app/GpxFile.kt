@@ -9,6 +9,7 @@ data class GpxFile(
     val durationSeconds: Long,
     val pointCount: Int,
     val sizeBytes: Long,
+    val hasTime: Boolean,
 ) {
     val distanceKm: Double get() = distanceMeters / 1000.0
     val durationFormatted: String
@@ -29,6 +30,7 @@ data class GpxFile(
             durationSeconds = o.getLong("durationSeconds"),
             pointCount = o.getInt("pointCount"),
             sizeBytes = o.getLong("sizeBytes"),
+            hasTime = o.optBoolean("hasTime", true),
         )
     }
 }

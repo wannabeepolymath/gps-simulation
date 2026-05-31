@@ -16,4 +16,17 @@
     <string name="setup_perm_title">Location permission required</string>
     <string name="setup_perm_body">Android requires location permission for an app to act as a mock-location provider. Grant precise location to continue.</string>
     <string name="grant_permission">Grant permission</string>
+    <string name="tools_title">Tools</string>
+    <string name="tool_add_time">Add Time to GPX</string>
+    <string name="tool_add_time_desc">Assign timestamps to a GPX with no time data using a start time and constant pace.</string>
+    <string name="no_time_dialog_title">No time data</string>
+    <string name="no_time_dialog_body">This GPX has no &lt;time&gt; tags, so the simulator can\'t play it back. Open Tools → Add Time to add timestamps.</string>
+    <string name="no_time_dialog_open_tools">Open Tools</string>
+    <string name="no_time_dialog_dismiss">Later</string>
+    <string name="add_time_pick_file">Pick a file (only files without time are shown)</string>
+    <string name="add_time_empty">No untimed files in your library. Upload one first.</string>
+    <string name="add_time_start">Start date &amp; time (ISO 8601, e.g. 2026-05-31T08:00:00Z)</string>
+    <string name="add_time_pace">Pace (MM:SS per km, e.g. 5:30)</string>
+    <string name="add_time_apply">Apply &amp; upload as new file</string>
+    <string name="add_time_done">Added timestamps — file uploaded.</string>
 </resources>

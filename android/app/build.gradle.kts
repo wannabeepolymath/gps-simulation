@@ -12,8 +12,8 @@ android {
         applicationId = "com.gpssimulator.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.4.0"
+        versionCode = 2
+        versionName = "0.5.0"
 
         val apiBaseUrl = (project.findProperty("api.base.url") as String?)
             ?: "http://10.0.2.2:4000"

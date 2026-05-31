@@ -32,9 +32,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -74,6 +76,8 @@ import java.io.File
 
 private sealed class Screen {
     data object Library : Screen()
+    data object Tools : Screen()
+    data object AddTime : Screen()
     data class Replay(val file: GpxFile, val localPath: String) : Screen()
 }
 
@@ -138,6 +142,7 @@ private fun MainContent(
     val files = remember { mutableStateListOf<GpxFile>() }
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
+    var noTimeNotice by remember { mutableStateOf<GpxFile?>(null) }
 
     suspend fun refresh() {
         loading = true
@@ -152,6 +157,25 @@ private fun MainContent(
 
     LaunchedEffect(Unit) { refresh() }
 
+    noTimeNotice?.let { file ->
+        AlertDialog(
+            onDismissRequest = { noTimeNotice = null },
+            title = { Text(stringRes(R.string.no_time_dialog_title)) },
+            text = { Text(stringRes(R.string.no_time_dialog_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    noTimeNotice = null
+                    screen = Screen.AddTime
+                }) { Text(stringRes(R.string.no_time_dialog_open_tools)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { noTimeNotice = null }) {
+                    Text(stringRes(R.string.no_time_dialog_dismiss))
+                }
+            },
+        )
+    }
+
     when (val s = screen) {
         is Screen.Library -> LibraryScreen(
             user = user,
@@ -165,6 +189,7 @@ private fun MainContent(
                         .onSuccess {
                             Toast.makeText(context, "Uploaded ${it.name}", Toast.LENGTH_SHORT).show()
                             refresh()
+                            if (!it.hasTime) noTimeNotice = it
                         }
                         .onFailure {
                             Toast.makeText(context, "Upload failed: ${it.message}", Toast.LENGTH_LONG).show()
@@ -190,6 +215,10 @@ private fun MainContent(
                 }
             },
             onPick = { file ->
+                if (!file.hasTime) {
+                    noTimeNotice = file
+                    return@LibraryScreen
+                }
                 scope.launch {
                     val cached = runCatching { repo.ensureCached(file) }
                     cached.onSuccess { local ->
@@ -199,7 +228,21 @@ private fun MainContent(
                     }
                 }
             },
+            onOpenTools = { screen = Screen.Tools },
             onSignOut = onSignOut,
+        )
+        is Screen.Tools -> ToolsScreen(
+            onBack = { screen = Screen.Library },
+            onOpenAddTime = { screen = Screen.AddTime },
+        )
+        is Screen.AddTime -> AddTimeScreen(
+            repo = repo,
+            files = files,
+            onBack = { screen = Screen.Tools },
+            onDone = {
+                scope.launch { refresh() }
+                screen = Screen.Library
+            },
         )
         is Screen.Replay -> ReplayScreen(
             file = s.file,
@@ -221,6 +264,7 @@ private fun LibraryScreen(
     onRename: (GpxFile, String) -> Unit,
     onDelete: (GpxFile) -> Unit,
     onPick: (GpxFile) -> Unit,
+    onOpenTools: () -> Unit,
     onSignOut: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -249,6 +293,9 @@ private fun LibraryScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenTools) {
+                        Icon(Icons.Default.Build, contentDescription = stringRes(R.string.tools_title))
+                    }
                     IconButton(onClick = onRefresh, enabled = !loading) {
                         Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                     }
@@ -353,13 +400,25 @@ private fun FileRow(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(4.dp))
+                val subtitle = if (file.hasTime) {
+                    "%.2f km · %s · %d pts".format(file.distanceKm, file.durationFormatted, file.pointCount)
+                } else {
+                    "%.2f km · %d pts · no time data".format(file.distanceKm, file.pointCount)
+                }
                 Text(
-                    text = "%.2f km · %s · %d pts".format(
-                        file.distanceKm, file.durationFormatted, file.pointCount,
-                    ),
+                    text = subtitle,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = if (file.hasTime) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error,
                 )
+            }
+            if (!file.hasTime) {
+                Icon(
+                    Icons.Default.Warning,
+                    contentDescription = "No time data",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+                Spacer(Modifier.width(4.dp))
             }
             IconButton(onClick = onRename) {
                 Icon(Icons.Default.Edit, contentDescription = "Rename")
@@ -368,7 +427,7 @@ private fun FileRow(
                 Icon(Icons.Default.Delete, contentDescription = "Delete")
             }
             Spacer(Modifier.width(4.dp))
-            Button(onClick = onPick) { Text("Open") }
+            Button(onClick = onPick) { Text(if (file.hasTime) "Open" else "Fix") }
         }
     }
 }
