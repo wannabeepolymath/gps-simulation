@@ -64,8 +64,10 @@ internal fun AddTimeScreen(
         )
     }
     var paceText by remember { mutableStateOf("5:30") }
-    var jitterText by remember { mutableStateOf("0") }
+    var jitterText by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+
+    val autoJitter = runCatching { defaultJitterForPace(parsePaceMmSs(paceText)) }.getOrNull()
     var errorText by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(untimed) {
@@ -164,7 +166,19 @@ internal fun AddTimeScreen(
             OutlinedTextField(
                 value = jitterText,
                 onValueChange = { jitterText = it },
-                label = { Text(ctx.getString(R.string.add_time_jitter)) },
+                label = { Text(ctx.getString(R.string.add_time_jitter_optional)) },
+                placeholder = {
+                    Text(
+                        if (autoJitter != null) "auto: $autoJitter" else "auto",
+                    )
+                },
+                supportingText = {
+                    val s = if (autoJitter != null)
+                        "Leave blank to use the auto value (${autoJitter}% for this pace). Range 0–50."
+                    else
+                        "Leave blank to auto-pick from pace. Range 0–50."
+                    Text(s)
+                },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
@@ -192,10 +206,15 @@ internal fun AddTimeScreen(
                             errorText = it.message
                             return@Button
                         }
-                    val jitter = jitterText.trim().toIntOrNull()
-                    if (jitter == null || jitter !in 0..50) {
-                        errorText = "Variability must be an integer 0–50."
-                        return@Button
+                    val jitter = if (jitterText.isBlank()) {
+                        defaultJitterForPace(paceSec)
+                    } else {
+                        val parsed = jitterText.trim().toIntOrNull()
+                        if (parsed == null || parsed !in 0..50) {
+                            errorText = "Variability must be an integer 0–50 (or blank for auto)."
+                            return@Button
+                        }
+                        parsed
                     }
                     errorText = null
                     busy = true

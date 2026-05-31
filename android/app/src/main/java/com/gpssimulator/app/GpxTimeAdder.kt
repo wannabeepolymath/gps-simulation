@@ -156,3 +156,16 @@ fun parsePaceMmSs(text: String): Int {
     if (total <= 0) throw IllegalArgumentException("Pace must be positive")
     return total
 }
+
+/**
+ * Sensible jitter (%) for a given pace. Faster paces = tighter variance
+ * (race discipline), slower paces = larger variance (recovery / walks /
+ * mixed efforts). Picked to look organic on Strava's pace chart.
+ */
+fun defaultJitterForPace(paceSecPerKm: Int): Int = when {
+    paceSecPerKm <= 240 -> 5    // ≤ 4:00/km — race / hard run
+    paceSecPerKm <= 300 -> 7    // ≤ 5:00/km — steady
+    paceSecPerKm <= 390 -> 10   // ≤ 6:30/km — easy run
+    paceSecPerKm <= 540 -> 12   // ≤ 9:00/km — jog / brisk walk
+    else -> 15                  // > 9:00/km — walk
+}

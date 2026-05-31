@@ -28,6 +28,7 @@
     <string name="add_time_start">Start date &amp; time (ISO 8601, e.g. 2026-05-31T08:00:00Z)</string>
     <string name="add_time_pace">Pace (MM:SS per km, e.g. 5:30)</string>
     <string name="add_time_jitter">Pace variability ±%% (0–50, 0 = flat, 10 looks organic)</string>
+    <string name="add_time_jitter_optional">Pace variability ±%% (optional)</string>
     <string name="add_time_apply">Apply &amp; upload as new file</string>
     <string name="add_time_done">Added timestamps — file uploaded.</string>
 </resources>
