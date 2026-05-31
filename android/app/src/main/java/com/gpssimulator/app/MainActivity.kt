@@ -616,7 +616,8 @@ private fun ReplayScreen(file: GpxFile, localPath: String, onBack: () -> Unit) {
 
             StatusCard(state = state)
 
-            val running = state is RunState.Running
+            val runState = state as? RunState.Running
+            val running = runState != null
             Button(
                 modifier = Modifier.fillMaxWidth(),
                 enabled = issues.isEmpty() && File(localPath).exists(),
@@ -633,6 +634,32 @@ private fun ReplayScreen(file: GpxFile, localPath: String, onBack: () -> Unit) {
                 },
             ) {
                 Text(if (running) stringRes(R.string.stop_sim) else stringRes(R.string.start_sim))
+            }
+
+            if (runState != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = { MockLocationService.togglePause(context) },
+                    ) {
+                        Text(
+                            if (runState.paused) stringRes(R.string.resume_sim)
+                            else stringRes(R.string.pause_sim)
+                        )
+                    }
+                    Button(
+                        modifier = Modifier.weight(1f),
+                        onClick = { MockLocationService.toggleDirection(context) },
+                    ) {
+                        Text(
+                            if (runState.direction == Direction.Reverse) stringRes(R.string.forward_sim)
+                            else stringRes(R.string.rewind_sim)
+                        )
+                    }
+                }
             }
 
             Card(modifier = Modifier.fillMaxWidth()) {
@@ -729,8 +756,13 @@ private fun StatusCard(state: RunState) {
                     )
                 }
                 is RunState.Running -> {
+                    val statusLine = when {
+                        state.paused -> "Status: paused"
+                        state.direction == Direction.Reverse -> "Status: rewinding"
+                        else -> "Status: simulating"
+                    }
                     Text(
-                        "Status: simulating",
+                        statusLine,
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
                     )
@@ -739,7 +771,11 @@ private fun StatusCard(state: RunState) {
                         style = MaterialTheme.typography.bodyLarge,
                     )
                     if (state.holdingLastPoint) {
-                        Text("Holding last point — stop the recording in your tracking app, then stop here.")
+                        val msg = if (state.elapsedSeconds <= 0L)
+                            "Holding at start — tap Rewind to play forward again."
+                        else
+                            "Holding at end — stop the recording in your tracking app, then stop here."
+                        Text(msg)
                     }
                 }
                 is RunState.Failed -> {

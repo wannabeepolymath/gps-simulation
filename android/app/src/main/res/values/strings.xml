@@ -5,6 +5,10 @@
     <string name="empty_library">No GPX files yet. Tap Import GPX to add one.</string>
     <string name="start_sim">Start Simulation</string>
     <string name="stop_sim">Stop Simulation</string>
+    <string name="pause_sim">Pause</string>
+    <string name="resume_sim">Resume</string>
+    <string name="rewind_sim">Rewind</string>
+    <string name="forward_sim">Forward</string>
     <string name="notif_channel_name">Mock Location</string>
     <string name="notif_channel_desc">Active GPS simulation session</string>
     <string name="notif_title">GPS simulation active</string>

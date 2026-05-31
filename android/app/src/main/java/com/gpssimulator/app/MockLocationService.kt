@@ -32,6 +32,10 @@ class MockLocationService : Service() {
     private var providerAdded = false
     private lateinit var locationManager: LocationManager
 
+    @Volatile private var paused: Boolean = false
+    @Volatile private var reverse: Boolean = false
+    private var lastFileName: String = ""
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -45,6 +49,14 @@ class MockLocationService : Service() {
             ACTION_STOP -> {
                 stopAll()
                 return START_NOT_STICKY
+            }
+            ACTION_TOGGLE_PAUSE -> {
+                paused = !paused
+                return START_STICKY
+            }
+            ACTION_TOGGLE_DIRECTION -> {
+                reverse = !reverse
+                return START_STICKY
             }
         }
 
@@ -74,35 +86,43 @@ class MockLocationService : Service() {
             return START_NOT_STICKY
         }
 
+        paused = false
+        reverse = false
+        lastFileName = File(path).name
         emitJob?.cancel()
-        emitJob = scope.launch { runEmission(File(path).name, points) }
+        emitJob = scope.launch { runEmission(lastFileName, points) }
         return START_STICKY
     }
 
     private suspend fun runEmission(fileName: String, points: List<TrackPoint>) {
-        val t0 = points.first().time
-        val totalSeconds = (points.last().time.epochSecond - t0.epochSecond).coerceAtLeast(1)
-        val startWall = SystemClock.elapsedRealtime()
+        val totalSeconds = (points.last().time.epochSecond - points.first().time.epochSecond).coerceAtLeast(1)
 
+        // Virtual playback position along the route, in seconds from t0.
+        // Advances forward or backward each tick based on the current direction
+        // flag; holds at either endpoint.
+        var simSec = 0.0
         var prevLat = points.first().lat
         var prevLon = points.first().lon
-        var prevWall = startWall
+        var prevWall = SystemClock.elapsedRealtime()
 
         while (true) {
             val now = SystemClock.elapsedRealtime()
-            val elapsedMs = now - startWall
-            val elapsedSec = elapsedMs / 1000
+            val dtWallSec = ((now - prevWall) / 1000.0).coerceAtLeast(0.0)
+            prevWall = now
 
-            val sample = interpolate(points, elapsedMs / 1000.0)
-            val holding = sample.holding
-            val pt = sample.point
+            if (!paused) {
+                simSec += if (reverse) -dtWallSec else dtWallSec
+            }
+            val atEndpoint = simSec >= totalSeconds || simSec <= 0.0
+            simSec = simSec.coerceIn(0.0, totalSeconds.toDouble())
 
-            val dtSec = ((now - prevWall) / 1000.0).coerceAtLeast(0.001)
+            val pt = interpolateAtSec(points, simSec)
+
             val distM = Geo.haversineMeters(prevLat, prevLon, pt.lat, pt.lon)
-            val speed = if (holding) 0f else (distM / dtSec).toFloat()
+            val speed = if (paused || atEndpoint || dtWallSec <= 0.0) 0f
+            else (distM / dtWallSec).toFloat()
             prevLat = pt.lat
             prevLon = pt.lon
-            prevWall = now
 
             val loc = buildLocation(pt, speed)
             try {
@@ -116,9 +136,11 @@ class MockLocationService : Service() {
             ServiceState.set(
                 RunState.Running(
                     fileName = fileName,
-                    elapsedSeconds = elapsedSec.coerceAtMost(totalSeconds),
+                    elapsedSeconds = simSec.toLong().coerceIn(0L, totalSeconds),
                     totalSeconds = totalSeconds,
-                    holdingLastPoint = holding,
+                    holdingLastPoint = atEndpoint,
+                    paused = paused,
+                    direction = if (reverse) Direction.Reverse else Direction.Forward,
                 )
             )
 
@@ -126,15 +148,12 @@ class MockLocationService : Service() {
         }
     }
 
-    private data class Sample(val point: TrackPoint, val holding: Boolean)
-
-    private fun interpolate(points: List<TrackPoint>, elapsedSec: Double): Sample {
+    /** Interpolate the point at virtualSec into the timeline (clamped). */
+    private fun interpolateAtSec(points: List<TrackPoint>, virtualSec: Double): TrackPoint {
         val t0 = points.first().time.epochSecond.toDouble()
-        val tTarget = t0 + elapsedSec
-        val last = points.last()
-        if (tTarget >= last.time.epochSecond) {
-            return Sample(last, holding = true)
-        }
+        val tTarget = t0 + virtualSec
+        if (tTarget >= points.last().time.epochSecond) return points.last()
+        if (tTarget <= t0) return points.first()
         var lo = 0
         var hi = points.size - 1
         while (lo + 1 < hi) {
@@ -145,14 +164,11 @@ class MockLocationService : Service() {
         val b = points[hi]
         val span = (b.time.epochSecond - a.time.epochSecond).toDouble().coerceAtLeast(0.001)
         val f = ((tTarget - a.time.epochSecond) / span).coerceIn(0.0, 1.0)
-        return Sample(
-            TrackPoint(
-                lat = a.lat + (b.lat - a.lat) * f,
-                lon = a.lon + (b.lon - a.lon) * f,
-                ele = if (a.ele != null && b.ele != null) a.ele + (b.ele - a.ele) * f else (a.ele ?: b.ele),
-                time = a.time,
-            ),
-            holding = false,
+        return TrackPoint(
+            lat = a.lat + (b.lat - a.lat) * f,
+            lon = a.lon + (b.lon - a.lon) * f,
+            ele = if (a.ele != null && b.ele != null) a.ele + (b.ele - a.ele) * f else (a.ele ?: b.ele),
+            time = a.time,
         )
     }
 
@@ -293,6 +309,8 @@ class MockLocationService : Service() {
     companion object {
         const val EXTRA_GPX_PATH = "gpx_path"
         const val ACTION_STOP = "com.gpssimulator.app.STOP"
+        const val ACTION_TOGGLE_PAUSE = "com.gpssimulator.app.TOGGLE_PAUSE"
+        const val ACTION_TOGGLE_DIRECTION = "com.gpssimulator.app.TOGGLE_DIRECTION"
         private const val CHANNEL_ID = "mock_location"
         private const val NOTIF_ID = 4711
 
@@ -308,8 +326,20 @@ class MockLocationService : Service() {
         }
 
         fun stop(context: Context) {
+            send(context, ACTION_STOP)
+        }
+
+        fun togglePause(context: Context) {
+            send(context, ACTION_TOGGLE_PAUSE)
+        }
+
+        fun toggleDirection(context: Context) {
+            send(context, ACTION_TOGGLE_DIRECTION)
+        }
+
+        private fun send(context: Context, action: String) {
             val intent = Intent(context, MockLocationService::class.java).apply {
-                action = ACTION_STOP
+                this.action = action
             }
             context.startService(intent)
         }
