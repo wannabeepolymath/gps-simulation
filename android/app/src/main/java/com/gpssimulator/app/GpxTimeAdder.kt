@@ -25,12 +25,31 @@ object GpxTimeAdder {
      * assigns timestamps from `start` using the given pace (sec/km).
      * Existing <time> tags inside trkpts are overwritten.
      *
+     * Jitter: when `variabilityPercent > 0`, each per-segment time delta is
+     * multiplied by `1 + N(0, sigma)` with `sigma = variability/100`, clamped
+     * to [0.5x, 2.0x] so a segment never reverses time or collapses to zero.
+     * The RNG is seeded from (start, pace, variability) so the same inputs
+     * produce the same output. Pass 0 (default) for a perfectly flat pace.
+     *
      * @param paceSecPerKm pace in seconds per kilometre (e.g. 5:30 → 330)
+     * @param variabilityPercent 0..50; per-segment Gaussian sigma in percent.
      */
-    fun addTimes(bytes: ByteArray, start: Instant, paceSecPerKm: Int): Result {
+    fun addTimes(
+        bytes: ByteArray,
+        start: Instant,
+        paceSecPerKm: Int,
+        variabilityPercent: Int = 0,
+    ): Result {
         require(paceSecPerKm > 0) { "pace must be positive" }
+        require(variabilityPercent in 0..50) { "variability must be 0..50%" }
         val xml = bytes.toString(Charsets.UTF_8)
         val secPerMeter = paceSecPerKm / 1000.0
+        val sigma = variabilityPercent / 100.0
+        val rng = if (sigma > 0.0) java.util.Random(
+            start.epochSecond * 1_000_003L +
+                paceSecPerKm.toLong() * 31L +
+                variabilityPercent.toLong()
+        ) else null
 
         // First pass: find all trkpt occurrences (open-with-content + self-closing),
         // compute (lat, lon) and cumulative distance → assigned time.
@@ -61,7 +80,7 @@ object GpxTimeAdder {
 
         var prevLat = Double.NaN
         var prevLon = Double.NaN
-        var cumulativeM = 0.0
+        var cumulativeSec = 0.0
 
         val sb = StringBuilder(xml.length + hits.size * 40)
         var cursor = 0
@@ -73,13 +92,19 @@ object GpxTimeAdder {
             val lon = a["lon"]?.toDoubleOrNull()
                 ?: throw IllegalArgumentException("trkpt missing valid lon")
 
-            if (!prevLat.isNaN()) {
-                cumulativeM += haversineMeters(prevLat, prevLon, lat, lon)
-            }
+            val segmentM = if (!prevLat.isNaN()) {
+                haversineMeters(prevLat, prevLon, lat, lon)
+            } else 0.0
+            val expectedDeltaSec = segmentM * secPerMeter
+            val deltaSec = if (rng != null && expectedDeltaSec > 0.0) {
+                val mul = (1.0 + rng.nextGaussian() * sigma).coerceIn(0.5, 2.0)
+                expectedDeltaSec * mul
+            } else expectedDeltaSec
+            cumulativeSec += deltaSec
             prevLat = lat
             prevLon = lon
 
-            val timestamp = start.plusMillis((cumulativeM * secPerMeter * 1000.0).toLong())
+            val timestamp = start.plusMillis((cumulativeSec * 1000.0).toLong())
             val timeTag = "<time>${timestamp}</time>"
 
             sb.append(xml, cursor, h.start)

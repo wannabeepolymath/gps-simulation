@@ -64,6 +64,7 @@ internal fun AddTimeScreen(
         )
     }
     var paceText by remember { mutableStateOf("5:30") }
+    var jitterText by remember { mutableStateOf("0") }
     var busy by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
 
@@ -160,6 +161,13 @@ internal fun AddTimeScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
             )
+            OutlinedTextField(
+                value = jitterText,
+                onValueChange = { jitterText = it },
+                label = { Text(ctx.getString(R.string.add_time_jitter)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
 
             errorText?.let {
                 Text(
@@ -184,13 +192,18 @@ internal fun AddTimeScreen(
                             errorText = it.message
                             return@Button
                         }
+                    val jitter = jitterText.trim().toIntOrNull()
+                    if (jitter == null || jitter !in 0..50) {
+                        errorText = "Variability must be an integer 0–50."
+                        return@Button
+                    }
                     errorText = null
                     busy = true
                     scope.launch {
                         runCatching {
                             val raw = repo.downloadBytes(target)
                             val timed = withContext(Dispatchers.Default) {
-                                GpxTimeAdder.addTimes(raw, start, paceSec)
+                                GpxTimeAdder.addTimes(raw, start, paceSec, jitter)
                             }
                             val newName = deriveTimedName(target.name)
                             repo.uploadBytes(timed.bytes, newName)
