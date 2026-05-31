@@ -17,8 +17,8 @@ android {
         //   versionName: MAJOR.MINOR.PATCH — bug fix = patch, new feature = minor,
         //                breaking change (perms, data loss, removed feature) = major.
         // Git tag must be "v" + versionName (e.g. v0.5.1) for the in-app update check.
-        versionCode = 4
-        versionName = "0.7.0"
+        versionCode = 5
+        versionName = "0.8.0"
 
         val apiBaseUrl = (project.findProperty("api.base.url") as String?)
             ?: "http://10.0.2.2:4000"
