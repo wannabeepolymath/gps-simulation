@@ -36,7 +36,6 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -179,7 +178,7 @@ private fun MainContent(
     when (val s = screen) {
         is Screen.Library -> LibraryScreen(
             user = user,
-            files = files,
+            files = files.filter { it.hasTime },
             loading = loading,
             errorMessage = loadError,
             onRefresh = { scope.launch { refresh() } },
@@ -215,10 +214,6 @@ private fun MainContent(
                 }
             },
             onPick = { file ->
-                if (!file.hasTime) {
-                    noTimeNotice = file
-                    return@LibraryScreen
-                }
                 scope.launch {
                     val cached = runCatching { repo.ensureCached(file) }
                     cached.onSuccess { local ->
@@ -400,25 +395,13 @@ private fun FileRow(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(4.dp))
-                val subtitle = if (file.hasTime) {
-                    "%.2f km · %s · %d pts".format(file.distanceKm, file.durationFormatted, file.pointCount)
-                } else {
-                    "%.2f km · %d pts · no time data".format(file.distanceKm, file.pointCount)
-                }
                 Text(
-                    text = subtitle,
+                    text = "%.2f km · %s · %d pts".format(
+                        file.distanceKm, file.durationFormatted, file.pointCount,
+                    ),
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (file.hasTime) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            if (!file.hasTime) {
-                Icon(
-                    Icons.Default.Warning,
-                    contentDescription = "No time data",
-                    tint = MaterialTheme.colorScheme.error,
-                )
-                Spacer(Modifier.width(4.dp))
             }
             IconButton(onClick = onRename) {
                 Icon(Icons.Default.Edit, contentDescription = "Rename")
@@ -427,7 +410,7 @@ private fun FileRow(
                 Icon(Icons.Default.Delete, contentDescription = "Delete")
             }
             Spacer(Modifier.width(4.dp))
-            Button(onClick = onPick) { Text(if (file.hasTime) "Open" else "Fix") }
+            Button(onClick = onPick) { Text("Open") }
         }
     }
 }
