@@ -2,7 +2,6 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    id("com.google.gms.google-services")
 }
 
 android {
@@ -14,16 +13,36 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.3.0"
+        versionName = "0.4.0"
 
         val apiBaseUrl = (project.findProperty("api.base.url") as String?)
             ?: "http://10.0.2.2:4000"
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+
+        val googleWebClientId = (project.findProperty("google.web.client.id") as String?) ?: ""
+        buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+    }
+
+    signingConfigs {
+        create("release") {
+            val ksPath = project.findProperty("STRAVA_SPOOF_KEYSTORE") as String?
+            val ks = ksPath?.let { file(it) }
+            if (ks != null && ks.exists()) {
+                storeFile = ks
+                storePassword = project.findProperty("STRAVA_SPOOF_KEYSTORE_PASSWORD") as String?
+                keyAlias = project.findProperty("STRAVA_SPOOF_KEY_ALIAS") as String?
+                keyPassword = project.findProperty("STRAVA_SPOOF_KEY_PASSWORD") as String?
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            val ksPath = project.findProperty("STRAVA_SPOOF_KEYSTORE") as String?
+            if (ksPath != null && file(ksPath).exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
@@ -56,13 +75,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
-    // Firebase Auth
-    implementation(platform("com.google.firebase:firebase-bom:33.4.0"))
-    implementation("com.google.firebase:firebase-auth")
-
-    // Credential Manager + Google ID for "Sign in with Google"
+    // Google Sign-In via Credential Manager (no Firebase).
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")

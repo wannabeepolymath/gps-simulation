@@ -22,54 +22,60 @@ Everything you need, in order, to feed simulated GPS to your activity-tracking a
 2. Settings → **System → Developer options** → turn on **USB debugging**.
 3. Plug the phone into your computer. A prompt appears on the phone: **Allow USB debugging?** → check "Always allow" → tap **Allow**.
 
-## 2.5 Firebase setup (required for login)
+## 2.5 Google OAuth setup (required for login)
 
-The app gates access behind a login screen that supports **Email/Password** and **Sign in with Google**, backed by **Firebase Authentication**. The build fails without a real `google-services.json` in `android/app/`. Do this once.
+The app gates access behind a Google Sign-In screen. No Firebase. Auth is done directly through Google Cloud OAuth — two OAuth clients (Web + Android) in a Google Cloud project, that's it.
 
-### 2.5.1 Create a Firebase project
+### 2.5.1 Create / pick a Google Cloud project
 
-1. Go to https://console.firebase.google.com → **Add project** → name it e.g. `gps-simulator` → continue. You can disable Google Analytics — it's not needed.
+1. Go to https://console.cloud.google.com → top bar → project dropdown → **New project** (or pick an existing one). Name it e.g. `gps-simulator`. Save the **Project ID** (Cloud auto-generates one).
 
-### 2.5.2 Register the Android app
+### 2.5.2 Configure the OAuth consent screen
 
-1. In the Firebase console, **Project Overview → Add app → Android** icon.
-2. **Android package name**: `com.gpssimulator.app` (must match exactly).
-3. **Debug signing certificate SHA-1**: needed for Google Sign-In. Get it from your local machine:
+Required before you can create any OAuth client.
+
+1. Console → **APIs & Services → OAuth consent screen**.
+2. **User Type**: **External** (works for any Google account) → **Create**.
+3. Fill the required fields: App name (e.g. `GPS Simulator`), User support email (your email), Developer contact email. The rest can stay blank for now. **Save and continue**.
+4. **Scopes** screen → just click **Save and continue** (we only use the default `openid`, `email`, `profile`).
+5. **Test users** → add your own Google email so you can sign in while the app is in "Testing" mode. **Save and continue** → **Back to dashboard**.
+
+### 2.5.3 Create the Web OAuth client (the one both Android and backend need)
+
+This single Web client ID is the source of truth — it's what the Android app passes as `setServerClientId(...)` AND what the backend uses as the token audience.
+
+1. Console → **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+2. **Application type**: **Web application**.
+3. Name: `GPS Simulator – Web`.
+4. **Authorized JavaScript origins** and **Authorized redirect URIs**: leave both blank (we only need the client ID for ID token verification, not the OAuth redirect flow).
+5. **Create**. Copy the **Client ID** that ends in `.apps.googleusercontent.com`. You'll put this:
+   - in `~/.gradle/gradle.properties` as `google.web.client.id=...` (Android build)
+   - on Render as `GOOGLE_OAUTH_WEB_CLIENT_ID=...` (backend env)
+
+### 2.5.4 Create the Android OAuth client (authorizes your app to use the Web client)
+
+The Android app's identity must be registered for Google to issue tokens to it. You don't use this client ID in code — Google just checks it exists.
+
+1. Console → **APIs & Services → Credentials → Create credentials → OAuth client ID**.
+2. **Application type**: **Android**.
+3. Name: `GPS Simulator – Android`.
+4. **Package name**: `com.gpssimulator.app` (must match exactly).
+5. **SHA-1 certificate fingerprint**: get yours:
    ```
-   # macOS / Linux:
-   keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey \
-     -storepass android -keypass android | grep "SHA1:"
-
-   # Windows (PowerShell):
-   # keytool -list -v -keystore "$env:USERPROFILE\.android\debug.keystore" `
-   #   -alias androiddebugkey -storepass android -keypass android | Select-String SHA1
+   # Debug (Android Studio's auto-generated keystore):
+   keytool -keystore ~/.android/debug.keystore -list -v \
+     -storepass android -keypass android -alias androiddebugkey | grep SHA1:
    ```
-   Paste the hex string (e.g. `12:34:AB:…:EF`) into the Firebase form. Click **Register app**.
-4. **Download `google-services.json`** → move it to **`android/app/google-services.json`**. (This file is gitignored — never commit it.)
-5. Skip the "Add Firebase SDK" and "Verify installation" wizard steps — `build.gradle.kts` is already set up.
+   Paste the hex string. **Create**.
+6. Once you have a release keystore (`~/.strava-spoof-release.jks`), repeat with **+ ADD FINGERPRINT** and the release SHA-1. You can have many.
 
-### 2.5.3 Enable the auth providers
-
-In the Firebase console: **Build → Authentication → Get started**, then on the **Sign-in method** tab:
-
-1. **Email/Password** → click → toggle **Enable** → **Save**.
-2. **Google** → click → toggle **Enable** → set a project support email → **Save**.
-
-### 2.5.4 Verify the Web OAuth client exists
-
-Google Sign-In on Android uses a **Web client ID**, not the Android client ID (counter-intuitive, but that's how it works).
-
-1. Firebase Console → ⚙️ → **Project settings** → **General** tab → scroll to "Your apps".
-2. There should be a **Web app** entry. If not: click **Add app → Web (`</>`)** → nickname it → register. (No need to add any SDK; we only need the client ID generated.)
-3. **Re-download `google-services.json`** from the Android app card. The fresh file now contains an `oauth_client` entry of `client_type: 3` (web). The google-services Gradle plugin uses it to generate `R.string.default_web_client_id` at build time.
-
-Without this step, email/password works but the "Continue with Google" button errors with *"Google sign-in not configured."*.
+Two clients now exist in the project: the Web one and the Android one. The Web client ID is the one you use in code; the Android client just unlocks Android requests for it.
 
 ---
 
 ## 2.6 Backend setup (required — GPX files live in Postgres)
 
-The Android app no longer stores GPX files locally. It uploads to a small Node/Express backend backed by Postgres, scoped by your Firebase user. Bring up the backend on the same machine you're developing from.
+The Android app no longer stores GPX files locally. It uploads to a small Node/Express backend backed by Postgres, scoped by your Google account. Bring up the backend on the same machine you're developing from.
 
 ### 2.6.1 Postgres via Docker
 
@@ -89,22 +95,27 @@ docker exec -it gps-simulator-pg psql -U gps_simulator -c "select 1"
 
 Stop/start later with `docker stop gps-simulator-pg` / `docker start gps-simulator-pg`. Data lives in the container's volume until you `docker rm` it.
 
-### 2.6.2 Firebase Admin service account
+### 2.6.2 Backend env + first run
 
-The backend verifies Firebase ID tokens that the Android app sends. It needs the project's service account key:
-
-1. Firebase console → ⚙️ → **Project settings → Service accounts** tab.
-2. Click **Generate new private key** → **Generate key**. A JSON file downloads.
-3. Move it to `backend/firebase-service-account.json`. (Gitignored.)
-4. Keep it private — anyone with this file has admin access to your Firebase project.
-
-### 2.6.3 Backend env + first run
+The backend verifies Google ID tokens that the Android app sends. It needs the Web client ID from §2.5.3 — same value the Android app uses.
 
 ```
 cd backend
 cp .env.example .env
-# Edit .env if your Postgres URL or service account path differs.
+```
 
+Edit `.env`:
+
+```
+DATABASE_URL=postgresql://gps_simulator:gps_simulator@localhost:5432/gps_simulator
+GOOGLE_OAUTH_WEB_CLIENT_ID=000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+PORT=4000
+MAX_UPLOAD_BYTES=10485760
+```
+
+Then:
+
+```
 npm install
 npm run migrate           # creates the gpx_files table; idempotent
 npm run dev               # tsx watch; listens on PORT (default 4000)
@@ -125,7 +136,7 @@ curl http://localhost:4000/health
 # {"ok":true}
 ```
 
-### 2.6.4 Point the Android app at the backend
+### 2.6.3 Point the Android app at the backend
 
 The Android build reads the API base URL from a Gradle property `api.base.url` (default `http://10.0.2.2:4000`, which is the emulator-to-host shortcut).
 
@@ -158,6 +169,14 @@ Then either:
   ```
 
 Make sure your dev machine's firewall allows inbound TCP/4000 on that interface, and the phone is on the same Wi-Fi.
+
+The Android build ALSO needs the Web client ID from §2.5.3. Add to `~/.gradle/gradle.properties`:
+
+```
+google.web.client.id=000000000000-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com
+```
+
+(Same value you put in the backend's `.env` as `GOOGLE_OAUTH_WEB_CLIENT_ID`. They MUST match — that's how the backend confirms the token was issued for this app.)
 
 ---
 

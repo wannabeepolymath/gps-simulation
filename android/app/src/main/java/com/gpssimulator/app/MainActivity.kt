@@ -80,9 +80,9 @@ private sealed class Screen {
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val api = ApiClient(BuildConfig.API_BASE_URL)
+        val authRepo = AuthRepository(this)
+        val api = ApiClient(BuildConfig.API_BASE_URL, authRepo)
         val repo = GpxRepository(applicationContext, api)
-        val authRepo = AuthRepository()
         setContent { SimulatorApp(repo, authRepo) }
     }
 }
@@ -90,11 +90,26 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
     val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
+    val scope = rememberCoroutineScope()
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             AuthGate(authRepo) { user ->
-                MainContent(repo, user, onSignOut = { authRepo.signOut() })
+                MainContent(
+                    repo = repo,
+                    user = user,
+                    onSignOut = { scope.launch { authRepo.signOut() } },
+                )
             }
+        }
+    }
+
+    // If we restored a SignedIn state from prefs but have no in-memory token,
+    // try a silent refresh in the background. If it fails, drop to SignedOut.
+    LaunchedEffect(Unit) {
+        val state = authRepo.state.value
+        if (state is AuthState.SignedIn && authRepo.currentIdToken() == null) {
+            runCatching { authRepo.silentRefresh() }
+                .onFailure { authRepo.signOut() }
         }
     }
 }
@@ -225,7 +240,7 @@ private fun LibraryScreen(
                 title = {
                     Column {
                         Text(stringRes(R.string.library_title))
-                        val subtitle = user.displayName ?: user.email ?: user.uid
+                        val subtitle = user.displayName ?: user.email ?: user.sub
                         Text(
                             subtitle,
                             style = MaterialTheme.typography.bodySmall,

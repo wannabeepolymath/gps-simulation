@@ -16,3 +16,5 @@ venv/
 
 # Session cookies used by the utility scripts under tools/
 .authdata*
+
+.env

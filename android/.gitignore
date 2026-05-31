@@ -9,5 +9,3 @@ captures/
 gradle/wrapper/gradle-wrapper.jar
 gradlew
 gradlew.bat
-# Firebase credentials — each developer downloads their own from Firebase console.
-app/google-services.json

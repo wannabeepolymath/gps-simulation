@@ -6,9 +6,9 @@ Three things ship:
 |---|---|---|
 | Postgres | **Neon** (https://neon.tech) — free tier | Serverless, no time-limited free trial, generous storage. |
 | Backend | **Render** (https://render.com) — free Web Service | Auto-deploy from GitHub, free HTTPS, no credit card. Free tier sleeps after 15 min idle — fine for a personal tool. |
-| Android APK | Sideload via **GitHub Releases** or **Firebase App Distribution** | The app violates Play Store policy on mock-location, so it can't ship there. |
+| Android APK | Sideload via **GitHub Releases** | The app violates Play Store policy on mock-location, so it can't ship there. |
 
-Firebase Auth is already cloud-hosted — nothing to deploy.
+Google OAuth (your Google Cloud project from `RUNNING.md` §2.5) is already live — nothing to deploy there.
 
 If you want always-on backend (no cold start), swap Render for **Fly.io** — instructions at the end.
 
@@ -32,15 +32,22 @@ psql 'postgresql://user:pass@ep-xxx.us-east-2.aws.neon.tech/neondb?sslmode=requi
 
 ---
 
-## 2. Get the Firebase service account JSON
+## 2. Verify the Google Cloud OAuth setup
 
-The backend verifies Firebase ID tokens, which needs admin credentials.
+You should already have done `RUNNING.md` §2.5 (Web client + Android client in Google Cloud Console). For production you also need:
 
-1. Firebase console → ⚙️ → **Project settings → Service accounts** tab.
-2. **Generate new private key** → **Generate key** → JSON file downloads.
-3. Open it in a text editor. You'll paste its **entire contents** as one env var on Render in §3.
+1. **Add the release SHA-1** to the Android OAuth client. From your release keystore (created in §5.1 below):
+   ```
+   keytool -keystore ~/.strava-spoof-release.jks -list -v -alias strava-spoof | grep SHA1:
+   ```
+   Console → APIs & Services → Credentials → your Android OAuth client → **+ ADD FINGERPRINT** → paste → save.
+   You can keep the debug SHA-1 there too.
 
-Do **not** commit this file anywhere.
+2. **Confirm the Web client ID** from `RUNNING.md` §2.5.3 is handy — you'll paste it into Render in §3.
+
+3. **OAuth consent screen status**: while it's in "Testing" mode, only Google accounts you added under "Test users" can sign in. To open it up, click **Publish app** on the OAuth consent screen — for a self-only or small-team app, leaving it in Testing and adding ~100 emails is fine; the "Publish" path requires Google review only for sensitive scopes (which you don't use).
+
+Nothing else from Google's side is needed; OAuth is already running on Google's servers.
 
 ---
 
@@ -74,7 +81,7 @@ Render → your service → **Environment** tab → **Add Environment Variable**
 | Key | Value |
 |---|---|
 | `DATABASE_URL` | The Neon connection string from §1 |
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | The **entire contents** of the service-account JSON, on one line (paste it; Render's textarea handles newlines fine) |
+| `GOOGLE_OAUTH_WEB_CLIENT_ID` | Your Web OAuth client ID from `RUNNING.md` §2.5.3, ending in `.apps.googleusercontent.com` |
 | `PORT` | `4000` |
 | `MAX_UPLOAD_BYTES` | `10485760` |
 | `NODE_VERSION` | `20` (forces Node 20+; matches the local dev version) |
@@ -183,23 +190,27 @@ android {
 
 (I left this out of the committed build script to avoid wedging your local dev. Add it once you're ready to ship.)
 
-### 5.3 Add the release SHA-1 to Firebase
+### 5.3 Add the release SHA-1 to the Android OAuth client
 
-The release keystore has a different SHA-1 than debug. Email/password sign-in doesn't care, but if you later re-enable Google Sign-In it does:
+Google checks the SHA-1 on every Google Sign-In request, so the release keystore's SHA-1 must be registered on the Android OAuth client you created in `RUNNING.md` §2.5.4:
 
 ```
 keytool -list -v -keystore $HOME/.gps-simulator-release.jks -alias gps-simulator | grep SHA1:
 ```
 
-Paste that into Firebase console → Project settings → Your Android app → **Add fingerprint**. Re-download `google-services.json` and replace `android/app/google-services.json` (still gitignored).
+Console → APIs & Services → Credentials → your Android OAuth client → **+ ADD FINGERPRINT** → paste → save. Keep the debug SHA-1 too — you'll need both, depending on which APK is installed.
 
 ### 5.4 Build it
 
 ```
 cd android
-./gradlew assembleRelease -Papi.base.url=https://gps-simulator-backend.onrender.com
+./gradlew assembleRelease \
+  -Papi.base.url=https://gps-simulator-backend.onrender.com \
+  -Pgoogle.web.client.id=000000000000-xxxxxxxx.apps.googleusercontent.com
 ls -lh app/build/outputs/apk/release/app-release.apk
 ```
+
+(Or set `api.base.url` and `google.web.client.id` once in `~/.gradle/gradle.properties` and drop the `-P` flags.)
 
 This is the file you distribute.
 
@@ -219,20 +230,13 @@ Send your testers the download link from the release page. They:
 1. Download the APK on the phone's browser.
 2. Tap it → Android prompts to allow install from this source → **Settings** → enable → back → **Install**.
 
-### Option B — Firebase App Distribution (free, sends install link via email)
+### Option B — direct USB / file share
 
-1. Firebase console → **App Distribution** → onboard your Android app.
-2. Install the CLI: `npm install -g firebase-tools` → `firebase login`.
-3. Get your Firebase **App ID** from Project settings → General → Your apps (the `1:1234:android:abcd…` one).
-4. Upload + send:
-   ```
-   firebase appdistribution:distribute \
-     android/app/build/outputs/apk/release/app-release.apk \
-     --app 1:1234:android:abcd... \
-     --groups testers \
-     --release-notes "v0.3.0"
-   ```
-5. Add tester emails in the console; they get an email with install instructions.
+The simplest path. `adb install app/build/outputs/apk/release/app-release.apk` on a phone you own, or send the APK file via AirDrop / email / WhatsApp / Drive to your testers. They:
+1. Save the APK to Downloads.
+2. Tap it → "Allow install from this source" → **Install**.
+
+For more than a couple of testers, GitHub Releases (Option A) gives you a single durable download link.
 
 ---
 
@@ -283,7 +287,7 @@ flyctl launch --name gps-simulator-backend --no-deploy
 
 flyctl secrets set \
   DATABASE_URL='postgresql://user:pass@ep-xxx...neon.tech/neondb?sslmode=require' \
-  FIREBASE_SERVICE_ACCOUNT_JSON="$(cat ~/Downloads/firebase-service-account.json)" \
+  GOOGLE_OAUTH_WEB_CLIENT_ID='000000000000-xxxxxxxxxxxx.apps.googleusercontent.com' \
   MAX_UPLOAD_BYTES=10485760
 
 flyctl deploy
