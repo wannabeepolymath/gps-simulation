@@ -31,4 +31,7 @@
     <string name="add_time_jitter_optional">Pace variability ±%% (optional)</string>
     <string name="add_time_apply">Apply &amp; upload as new file</string>
     <string name="add_time_done">Added timestamps — file uploaded.</string>
+    <string name="update_title">Update available</string>
+    <string name="update_download">Download</string>
+    <string name="update_later">Later</string>
 </resources>

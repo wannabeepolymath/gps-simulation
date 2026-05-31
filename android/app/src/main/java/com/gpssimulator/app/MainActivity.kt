@@ -94,6 +94,9 @@ class MainActivity : ComponentActivity() {
 private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
     val colors = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var update by remember { mutableStateOf<UpdateChecker.LatestRelease?>(null) }
+
     MaterialTheme(colorScheme = colors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             AuthGate(authRepo) { user ->
@@ -103,18 +106,73 @@ private fun SimulatorApp(repo: GpxRepository, authRepo: AuthRepository) {
                     onSignOut = { scope.launch { authRepo.signOut() } },
                 )
             }
+            update?.let { release ->
+                UpdateDialog(
+                    release = release,
+                    onDownload = {
+                        runCatching {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(release.downloadUrl))
+                                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                        update = null
+                    },
+                    onLater = {
+                        UpdateChecker.markDismissed(context, release.version)
+                        update = null
+                    },
+                )
+            }
         }
     }
 
-    // If we restored a SignedIn state from prefs but have no in-memory token,
-    // try a silent refresh in the background. If it fails, drop to SignedOut.
     LaunchedEffect(Unit) {
+        // Restore silent-refresh: SignedIn state from prefs but no in-memory token.
         val state = authRepo.state.value
         if (state is AuthState.SignedIn && authRepo.currentIdToken() == null) {
             runCatching { authRepo.silentRefresh() }
                 .onFailure { authRepo.signOut() }
         }
     }
+
+    LaunchedEffect(Unit) {
+        update = runCatching { UpdateChecker.checkOnce(context) }.getOrNull()
+    }
+}
+
+@Composable
+private fun UpdateDialog(
+    release: UpdateChecker.LatestRelease,
+    onDownload: () -> Unit,
+    onLater: () -> Unit,
+) {
+    val notes = release.notes.take(600).let { if (release.notes.length > 600) "$it…" else it }
+    AlertDialog(
+        onDismissRequest = onLater,
+        title = { Text("${stringRes(R.string.update_title)} — v${release.version}") },
+        text = {
+            Column {
+                if (release.name.isNotBlank() && release.name != release.version) {
+                    Text(
+                        release.name,
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Spacer(Modifier.height(6.dp))
+                }
+                if (notes.isNotBlank()) {
+                    Text(notes, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDownload) { Text(stringRes(R.string.update_download)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onLater) { Text(stringRes(R.string.update_later)) }
+        },
+    )
 }
 
 @Composable

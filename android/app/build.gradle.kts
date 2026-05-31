@@ -21,6 +21,10 @@ android {
 
         val googleWebClientId = (project.findProperty("google.web.client.id") as String?) ?: ""
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", "\"$googleWebClientId\"")
+
+        val githubRepo = (project.findProperty("github.repo") as String?)
+            ?: "wannabeepolymath/gps-simulation"
+        buildConfigField("String", "GITHUB_REPO", "\"$githubRepo\"")
     }
 
     signingConfigs {
