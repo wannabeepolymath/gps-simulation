@@ -20,19 +20,29 @@ object GpxTimeAdder {
     data class Result(val bytes: ByteArray, val pointCount: Int)
 
     /**
-     * Rewrite the GPX so every trkpt has a <time>. Walks points in document
-     * order, accumulating great-circle distance from the previous point, and
-     * assigns timestamps from `start` using the given pace (sec/km).
-     * Existing <time> tags inside trkpts are overwritten.
+     * Rewrite the GPX so every trkpt has a <time>. Existing <time> tags
+     * inside trkpts are overwritten.
      *
-     * Jitter: when `variabilityPercent > 0`, each per-segment time delta is
-     * multiplied by `1 + N(0, sigma)` with `sigma = variability/100`, clamped
-     * to [0.5x, 2.0x] so a segment never reverses time or collapses to zero.
-     * The RNG is seeded from (start, pace, variability) so the same inputs
-     * produce the same output. Pass 0 (default) for a perfectly flat pace.
+     * Pace model (when variabilityPercent > 0):
+     *   per-segment time delta = baseline × warmup(t) × drift(progress) × (1 + noise)
+     * where
+     *   - baseline = segment_meters × seconds_per_meter
+     *   - warmup(t): smooth ramp from +25% slower at t=0 to 0 by t=60s.
+     *   - drift(progress): linear ±drift_total/2 across the run, drift_total
+     *     sampled uniformly in [-3%, +3%] (deterministic from seed). Mimics
+     *     positive/negative-split tendencies.
+     *   - noise: AR(1) Gaussian with persistence alpha=0.85 and stdev sigma.
+     *     This makes pace stay *near* recent pace (streaks) rather than
+     *     zig-zagging segment-to-segment. Stationary stdev = sigma.
+     * The final multiplier is clamped to [0.5x, 2.0x] so deltas stay positive
+     * and bounded. RNG is seeded from (start, pace, variability) so identical
+     * inputs produce identical files.
+     *
+     * Pass 0 for variabilityPercent to disable the entire model (flat pace,
+     * matches the Python tools/gpx_add_time.py).
      *
      * @param paceSecPerKm pace in seconds per kilometre (e.g. 5:30 → 330)
-     * @param variabilityPercent 0..50; per-segment Gaussian sigma in percent.
+     * @param variabilityPercent 0..50; AR(1) Gaussian sigma in percent.
      */
     fun addTimes(
         bytes: ByteArray,
@@ -78,31 +88,67 @@ object GpxTimeAdder {
         if (hits.isEmpty()) throw IllegalArgumentException("GPX has no trackpoints")
         hits.sortBy { it.start }
 
-        var prevLat = Double.NaN
-        var prevLon = Double.NaN
+        // Pre-compute segment distances so we know total expected duration up
+        // front (needed to normalize warm-up and drift on a fixed timeline).
+        val segmentM = DoubleArray(hits.size)
+        run {
+            var prevLat = Double.NaN
+            var prevLon = Double.NaN
+            for (i in hits.indices) {
+                val a = parseAttrs(hits[i].attrs)
+                val lat = a["lat"]?.toDoubleOrNull()
+                    ?: throw IllegalArgumentException("trkpt missing valid lat")
+                val lon = a["lon"]?.toDoubleOrNull()
+                    ?: throw IllegalArgumentException("trkpt missing valid lon")
+                segmentM[i] = if (!prevLat.isNaN()) haversineMeters(prevLat, prevLon, lat, lon) else 0.0
+                prevLat = lat
+                prevLon = lon
+            }
+        }
+        val totalExpectedSec = segmentM.sum() * secPerMeter
+
+        // AR(1) persistence — higher = streakier pace.
+        val alpha = 0.85
+        val arNoiseScale = sqrt(1.0 - alpha * alpha)
+        // Warm-up: start 25% slower, ease to 1.0 by 60s of expected time.
+        val warmupSlowdown = 0.25
+        val warmupSec = 60.0
+        // Long-term drift: uniform in [-3%, +3%] across the whole run.
+        val driftTotal = rng?.let { it.nextDouble() * 0.06 - 0.03 } ?: 0.0
+
+        var prevNoise = 0.0
         var cumulativeSec = 0.0
+        var cumulativeExpectedSec = 0.0
 
         val sb = StringBuilder(xml.length + hits.size * 40)
         var cursor = 0
 
-        for (h in hits) {
-            val a = parseAttrs(h.attrs)
-            val lat = a["lat"]?.toDoubleOrNull()
-                ?: throw IllegalArgumentException("trkpt missing valid lat")
-            val lon = a["lon"]?.toDoubleOrNull()
-                ?: throw IllegalArgumentException("trkpt missing valid lon")
-
-            val segmentM = if (!prevLat.isNaN()) {
-                haversineMeters(prevLat, prevLon, lat, lon)
-            } else 0.0
-            val expectedDeltaSec = segmentM * secPerMeter
+        for (i in hits.indices) {
+            val h = hits[i]
+            val expectedDeltaSec = segmentM[i] * secPerMeter
             val deltaSec = if (rng != null && expectedDeltaSec > 0.0) {
-                val mul = (1.0 + rng.nextGaussian() * sigma).coerceIn(0.5, 2.0)
+                // AR(1) noise: noise stays near recent noise → pace streaks.
+                val innovation = rng.nextGaussian() * sigma * arNoiseScale
+                val noise = alpha * prevNoise + innovation
+                prevNoise = noise
+
+                // Warm-up multiplier: smoothstep from (1 + slowdown) → 1.0
+                val warmupProgress = (cumulativeExpectedSec / warmupSec).coerceIn(0.0, 1.0)
+                val warmupEase = warmupProgress * warmupProgress * (3.0 - 2.0 * warmupProgress) // smoothstep
+                val warmupMul = 1.0 + warmupSlowdown * (1.0 - warmupEase)
+
+                // Drift: linear -drift/2 → +drift/2 across the run.
+                val runProgress = if (totalExpectedSec > 0.0)
+                    (cumulativeExpectedSec / totalExpectedSec).coerceIn(0.0, 1.0)
+                else 0.0
+                val driftMul = 1.0 + driftTotal * (runProgress - 0.5)
+
+                val mul = (warmupMul * driftMul * (1.0 + noise)).coerceIn(0.5, 2.0)
                 expectedDeltaSec * mul
             } else expectedDeltaSec
+
             cumulativeSec += deltaSec
-            prevLat = lat
-            prevLon = lon
+            cumulativeExpectedSec += expectedDeltaSec
 
             val timestamp = start.plusMillis((cumulativeSec * 1000.0).toLong())
             val timeTag = "<time>${timestamp}</time>"
