@@ -30,6 +30,7 @@ class MockLocationService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var emitJob: Job? = null
     private var providerAdded = false
+    @Volatile private var activeProviders: List<String> = emptyList()
     private lateinit var locationManager: LocationManager
 
     @Volatile private var paused: Boolean = false
@@ -126,7 +127,14 @@ class MockLocationService : Service() {
 
             val loc = buildLocation(pt, speed)
             try {
-                locationManager.setTestProviderLocation(LocationManager.GPS_PROVIDER, loc)
+                // Push the same fix to every mocked provider. Mocking only GPS lets
+                // the fused provider (what tracking apps actually read) blend in the
+                // device's real NETWORK position, so the recorded track jumps between
+                // real and simulated coordinates.
+                for (provider in activeProviders) {
+                    loc.provider = provider
+                    locationManager.setTestProviderLocation(provider, loc)
+                }
             } catch (e: SecurityException) {
                 ServiceState.set(RunState.Failed("Lost mock location permission: ${e.message}"))
                 stopAll()
@@ -192,13 +200,35 @@ class MockLocationService : Service() {
     }
 
     private fun setupProvider(): Boolean {
+        // GPS is mandatory; if it can't be mocked we have no permission at all.
+        // NETWORK is best-effort but normally succeeds — mocking it too stops the
+        // fused provider from leaking the device's real position into tracking apps.
+        if (!addProvider(LocationManager.GPS_PROVIDER, satellite = true)) return false
+        val providers = mutableListOf(LocationManager.GPS_PROVIDER)
+        if (addProvider(LocationManager.NETWORK_PROVIDER, satellite = false)) {
+            providers.add(LocationManager.NETWORK_PROVIDER)
+        }
+        // Some apps (API 31+) read the platform fused provider directly. Mock it too,
+        // best-effort — devices that reserve "fused" throw and we just skip it, falling
+        // back to gps+network (which already covers Play Services' fused client).
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            addProvider(LocationManager.FUSED_PROVIDER, satellite = false)
+        ) {
+            providers.add(LocationManager.FUSED_PROVIDER)
+        }
+        activeProviders = providers.toList()
+        providerAdded = true
+        return true
+    }
+
+    private fun addProvider(provider: String, satellite: Boolean): Boolean {
         return try {
-            try { locationManager.removeTestProvider(LocationManager.GPS_PROVIDER) } catch (_: Exception) {}
+            try { locationManager.removeTestProvider(provider) } catch (_: Exception) {}
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val props = ProviderProperties.Builder()
                     .setHasNetworkRequirement(false)
                     .setHasCellRequirement(false)
-                    .setHasSatelliteRequirement(true)
+                    .setHasSatelliteRequirement(satellite)
                     .setHasMonetaryCost(false)
                     .setHasAltitudeSupport(true)
                     .setHasSpeedSupport(true)
@@ -207,13 +237,13 @@ class MockLocationService : Service() {
                     .setAccuracy(ProviderProperties.ACCURACY_FINE)
                     .build()
                 @Suppress("DEPRECATION")
-                locationManager.addTestProvider(LocationManager.GPS_PROVIDER, props)
+                locationManager.addTestProvider(provider, props)
             } else {
                 @Suppress("DEPRECATION")
                 locationManager.addTestProvider(
-                    LocationManager.GPS_PROVIDER,
+                    provider,
                     /* requiresNetwork = */ false,
-                    /* requiresSatellite = */ true,
+                    /* requiresSatellite = */ satellite,
                     /* requiresCell = */ false,
                     /* hasMonetaryCost = */ false,
                     /* supportsAltitude = */ true,
@@ -223,8 +253,7 @@ class MockLocationService : Service() {
                     /* accuracy = */ 1,
                 )
             }
-            locationManager.setTestProviderEnabled(LocationManager.GPS_PROVIDER, true)
-            providerAdded = true
+            locationManager.setTestProviderEnabled(provider, true)
             true
         } catch (e: SecurityException) {
             false
@@ -235,10 +264,13 @@ class MockLocationService : Service() {
 
     private fun tearDownProvider() {
         if (!providerAdded) return
-        try {
-            locationManager.setTestProviderEnabled(LocationManager.GPS_PROVIDER, false)
-            locationManager.removeTestProvider(LocationManager.GPS_PROVIDER)
-        } catch (_: Exception) {}
+        for (provider in activeProviders) {
+            try {
+                locationManager.setTestProviderEnabled(provider, false)
+                locationManager.removeTestProvider(provider)
+            } catch (_: Exception) {}
+        }
+        activeProviders = emptyList()
         providerAdded = false
     }
 
